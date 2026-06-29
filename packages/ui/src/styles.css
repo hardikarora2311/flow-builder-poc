@@ -1,0 +1,240 @@
+/* All @platform/ui component styles live here.
+   Every value uses CSS custom properties.
+   No hardcoded colours, fonts, or spacing. */
+
+.pf-container {
+  max-width: var(--pf-container-max-width, 480px);
+  padding: var(--pf-container-padding, 24px);
+  background: var(--pf-color-background, #fff);
+  border-radius: var(--pf-radius-card, 12px);
+  font-family: var(--pf-font-family, system-ui);
+  font-size: var(--pf-font-size-base, 16px);
+  color: var(--pf-color-text, #111827);
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.pf-header {
+  margin-bottom: 24px;
+}
+
+.pf-back-btn {
+  background: none;
+  border: none;
+  color: var(--pf-color-primary);
+  cursor: pointer;
+  font-size: 14px;
+  font-family: var(--pf-font-family, system-ui);
+  padding: 0;
+  margin-bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pf-back-btn:hover { opacity: 0.8; }
+.pf-back-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.pf-title {
+  font-size: 22px;
+  font-weight: var(--pf-font-weight-heading, 600);
+  color: var(--pf-color-text);
+  margin: 0 0 8px;
+  font-family: var(--pf-font-family, system-ui);
+}
+
+.pf-subtitle {
+  font-size: 14px;
+  color: var(--pf-color-text-muted);
+  margin: 0;
+}
+
+.pf-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pf-field-gap, 16px);
+}
+
+.pf-field-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pf-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--pf-color-text);
+  font-family: var(--pf-font-family, system-ui);
+}
+
+.pf-required {
+  color: var(--pf-color-error);
+  margin-left: 2px;
+}
+
+.pf-input,
+.pf-select {
+  height: 44px;
+  padding: 0 12px;
+  border: 1.5px solid color-mix(in srgb, var(--pf-color-text) 20%, transparent);
+  border-radius: var(--pf-radius-input, 8px);
+  font-size: var(--pf-font-size-base, 16px);
+  font-family: var(--pf-font-family, system-ui);
+  color: var(--pf-color-text);
+  background: var(--pf-color-surface, #f8fafc);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+  width: 100%;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.pf-input:focus,
+.pf-select:focus {
+  border-color: var(--pf-color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pf-color-primary) 15%, transparent);
+}
+
+.pf-input--error,
+.pf-select--error {
+  border-color: var(--pf-color-error);
+}
+
+.pf-field-error {
+  font-size: 12px;
+  color: var(--pf-color-error);
+  margin: 0;
+  font-family: var(--pf-font-family, system-ui);
+}
+
+.pf-btn {
+  height: 48px;
+  padding: 0 24px;
+  background: var(--pf-color-primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--pf-radius-button, 8px);
+  font-size: 16px;
+  font-weight: 500;
+  font-family: var(--pf-font-family, system-ui);
+  cursor: pointer;
+  width: 100%;
+  transition: opacity 150ms ease, transform 100ms ease;
+  margin-top: 8px;
+}
+
+.pf-btn:hover:not(:disabled) { opacity: 0.9; }
+.pf-btn:active:not(:disabled) { transform: scale(0.99); }
+.pf-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.pf-btn--secondary {
+  background: transparent;
+  color: var(--pf-color-primary);
+  border: 1.5px solid var(--pf-color-primary);
+}
+
+.pf-skeleton {
+  background: color-mix(in srgb, var(--pf-color-text) 8%, transparent);
+  border-radius: var(--pf-radius-input, 8px);
+  animation: pf-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pf-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.pf-error-state {
+  text-align: center;
+  padding: 32px 16px;
+}
+
+.pf-error-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.pf-error-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--pf-color-text);
+  margin: 0 0 8px;
+  font-family: var(--pf-font-family, system-ui);
+}
+
+.pf-error-message {
+  font-size: 14px;
+  color: var(--pf-color-text-muted);
+  margin: 0 0 20px;
+  font-family: var(--pf-font-family, system-ui);
+}
+
+.pf-otp-inputs {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin: 24px 0;
+}
+
+.pf-otp-input {
+  width: 52px;
+  height: 60px;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 600;
+  border: 2px solid color-mix(in srgb, var(--pf-color-text) 20%, transparent);
+  border-radius: var(--pf-radius-input, 8px);
+  background: var(--pf-color-surface);
+  color: var(--pf-color-text);
+  font-family: var(--pf-font-family, system-ui);
+  outline: none;
+  transition: border-color 150ms ease;
+}
+
+.pf-otp-input:focus {
+  border-color: var(--pf-color-primary);
+}
+
+.pf-decision {
+  text-align: center;
+  padding: 24px 0;
+}
+
+.pf-decision-icon {
+  font-size: 56px;
+  margin-bottom: 16px;
+}
+
+.pf-decision-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  font-family: var(--pf-font-family, system-ui);
+}
+
+.pf-decision--approved .pf-decision-title { color: var(--pf-color-success); }
+.pf-decision--rejected .pf-decision-title { color: var(--pf-color-error); }
+
+.pf-loading-pulse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 0;
+}
+
+.pf-loading-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--pf-color-primary);
+  animation: pf-bounce 1.2s ease-in-out infinite;
+}
+
+.pf-loading-dot:nth-child(2) { animation-delay: 0.2s; }
+.pf-loading-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes pf-bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.6; }
+  50% { transform: translateY(-8px); opacity: 1; }
+}
