@@ -79,12 +79,30 @@ export function createDefaultNodeData(type: NodeType): WorkflowNodeData {
       }
     case 'api_request':
     case 'api':
-      return { ...base, method: 'POST', endpoint: 'https://api.example.com/resource', auth: 'bearer' }
+      return {
+        ...base,
+        method: 'POST',
+        endpoint: 'https://api.example.com/resource',
+        auth: 'bearer',
+        timeoutSeconds: 30,
+        retryCount: 2,
+        retryBackoff: 'exponential',
+        retryOnStatusCodes: '502,503,504,408',
+      }
     case 'edge_operation':
     case 'condition':
       return { ...base, condition: 'value == true', trueLabel: 'Yes', falseLabel: 'No' }
     case 'webhook':
-      return { ...base, variant: 'auto', webhookUrl: 'https://example.com/webhook', submitLabel: 'Continue' }
+      return {
+        ...base,
+        variant: 'auto',
+        webhookMode: 'redirect',
+        webhookUrl: 'https://example.com/webhook',
+        redirectUrl: 'https://example.com/oauth/authorize',
+        returnUrl: 'https://app.pice.one/callback',
+        timeoutSeconds: 300,
+        submitLabel: 'Continue',
+      }
     case 'flow_connector':
     case 'connector':
       return { ...base, label: 'Flow Connector', flowId: '' }

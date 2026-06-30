@@ -356,14 +356,26 @@ function WebhookNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
     enach: 'eNach',
     external: 'External',
   }
+  const modeMap: Record<string, { label: string; icon: string }> = {
+    redirect: { label: 'Redirect',  icon: '↗' },
+    sdk:      { label: 'SDK Launch', icon: '◇' },
+    listener: { label: 'Listener',   icon: '⬇' },
+  }
   const displayVariant = data.variant && data.variant !== 'auto' ? variantMap[data.variant] ?? data.variant : null
+  const mode = data.webhookMode ? modeMap[data.webhookMode] : null
+  const displayUrl = data.redirectUrl || data.webhookUrl
   return (
     <Card id={id} data={data} selected={selected}>
-      {displayVariant && (
-        <Row><Chip color="pink">{displayVariant}</Chip></Row>
-      )}
-      {data.webhookUrl ? (
-        <Row><code className="truncate text-[9px] font-mono text-slate-400">{data.webhookUrl.substring(0, 30)}</code></Row>
+      <div className="flex flex-wrap gap-1">
+        {mode && (
+          <Chip color="amber">
+            <span className="mr-0.5">{mode.icon}</span>{mode.label}
+          </Chip>
+        )}
+        {displayVariant && <Chip color="pink">{displayVariant}</Chip>}
+      </div>
+      {displayUrl ? (
+        <Row><code className="truncate text-[9px] font-mono text-slate-400">{displayUrl.substring(0, 30)}</code></Row>
       ) : (
         <Row><span className="italic text-[10px]">External flow</span></Row>
       )}

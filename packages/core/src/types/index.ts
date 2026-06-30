@@ -227,11 +227,42 @@ export interface WorkflowNodeData {
   auth?: 'none' | 'bearer' | 'apikey'
   requestBody?: string
   responseMapping?: string
+  /** JSON-string object of header name → value. Values support {{variables}}. */
+  headers?: string
+  /** JSON-string object of query param name → value. Values support {{variables}}. */
+  queryParams?: string
+  /** Request timeout in seconds (default 30). */
+  timeoutSeconds?: number
+  /** Number of automatic retries on transient failures (default 0). */
+  retryCount?: number
+  /** Backoff strategy between retries. */
+  retryBackoff?: 'none' | 'linear' | 'exponential'
+  /** Comma-separated HTTP status codes that trigger a retry (e.g. "502,503,504"). */
+  retryOnStatusCodes?: string
+  /** Mock JSON response used when the SDK runs in sandbox mode. */
+  mockResponse?: string
+  /** Optional connection ID (saved credentials in the platform). Replaces inline auth. */
+  connectionId?: string
   // Condition / edge_operation node
   condition?: string
   trueLabel?: string
   falseLabel?: string
-  // Webhook node
+  // Webhook node — three distinct modes
+  /** Discriminates between external redirect, SDK launch, and incoming webhook listener. */
+  webhookMode?: 'redirect' | 'sdk' | 'listener'
+  // Redirect mode (DigiLocker, NACH bank portal)
+  redirectUrl?: string
+  returnUrl?: string
+  // SDK launch mode (HyperVerge, Onfido, Jumio)
+  sdkProvider?: string
+  sdkCredentialsEndpoint?: string
+  sdkWorkflowId?: string
+  // Listener mode (incoming webhook for NPCI mandate confirmation etc.)
+  /** Comma-separated event names this listener accepts (e.g. "mandate.registered,mandate.failed"). */
+  expectedEvents?: string
+  /** Header name used to verify HMAC signature (e.g. "X-NPCI-Signature"). */
+  signatureHeader?: string
+  // Legacy single-mode fields (kept for backward compat with existing webhooks)
   webhookUrl?: string
   webhookSecret?: string
   // OTP node

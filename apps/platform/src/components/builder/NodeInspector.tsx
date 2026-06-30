@@ -232,6 +232,40 @@ function ConfigTab({
               availableVars={availableVars}
             />
           </Field>
+          <Field label="Headers">
+            <KeyValueEditor
+              value={data.headers ?? ''}
+              onChange={(v) => patch({ headers: v })}
+              availableVars={availableVars}
+              keyPlaceholder="X-Tenant-Id"
+              valuePlaceholder='value or {{variable}}'
+            />
+            <p className="mt-1.5 text-[10px] text-slate-400">
+              Custom headers added to the request. Values support <code className="font-mono bg-slate-100 px-0.5 rounded">{'{{variables}}'}</code>.
+            </p>
+          </Field>
+
+          <Field label="Query parameters">
+            <KeyValueEditor
+              value={data.queryParams ?? ''}
+              onChange={(v) => patch({ queryParams: v })}
+              availableVars={availableVars}
+              keyPlaceholder="param-name"
+              valuePlaceholder='value or {{variable}}'
+            />
+            <p className="mt-1.5 text-[10px] text-slate-400">
+              Appended to the endpoint URL as <code className="font-mono bg-slate-100 px-0.5 rounded">?key=value</code>.
+            </p>
+          </Field>
+
+          <Field label="Request body">
+            <RequestBodyEditor
+              value={data.requestBody ?? ''}
+              onChange={(v) => patch({ requestBody: v })}
+              availableVars={availableVars}
+            />
+          </Field>
+
           <Field label="Response mapping">
             <Textarea
               value={data.responseMapping ?? ''}
@@ -243,6 +277,71 @@ function ConfigTab({
             <p className="mt-1.5 text-[10px] text-slate-400 leading-relaxed">
               One mapping per line: <code className="font-mono bg-slate-100 px-0.5 rounded">responseField → context.namespace.key</code>
               <br />Response data is then available as <code className="font-mono bg-slate-100 px-0.5 rounded">{'{{response.responseField}}'}</code> in subsequent nodes.
+            </p>
+          </Field>
+
+          <Field label="Timeout (seconds)">
+            <NumberInput
+              value={data.timeoutSeconds ?? 30}
+              min={1}
+              max={300}
+              onChange={(v) => patch({ timeoutSeconds: v })}
+            />
+            <p className="mt-1.5 text-[10px] text-slate-400">
+              Maximum time to wait for a response. Bureau checks: 30-60s. DigiLocker: 5-10s. NACH: 60-120s.
+            </p>
+          </Field>
+
+          <Field label="Retry policy">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <FieldLabel>Max retries</FieldLabel>
+                <NumberInput
+                  value={data.retryCount ?? 0}
+                  min={0}
+                  max={10}
+                  onChange={(v) => patch({ retryCount: v })}
+                />
+              </div>
+              <div>
+                <FieldLabel>Backoff</FieldLabel>
+                <Select
+                  value={data.retryBackoff ?? 'exponential'}
+                  options={[
+                    { value: 'none',        label: 'None (immediate)' },
+                    { value: 'linear',      label: 'Linear (1s, 2s, 3s…)' },
+                    { value: 'exponential', label: 'Exponential (1s, 2s, 4s…)' },
+                  ]}
+                  onChange={(v) => patch({ retryBackoff: v as WorkflowNodeData['retryBackoff'] })}
+                />
+              </div>
+            </div>
+            <div className="mt-2">
+              <FieldLabel>Retry on status codes</FieldLabel>
+              <Input
+                value={data.retryOnStatusCodes ?? '502,503,504,408'}
+                onChange={(v) => patch({ retryOnStatusCodes: v })}
+                placeholder="502,503,504,408"
+                mono
+              />
+              <p className="mt-1 text-[10px] text-slate-400">
+                Comma-separated HTTP status codes. Standard set: <code className="font-mono">502,503,504,408</code>.
+                Network errors are always retried regardless.
+              </p>
+            </div>
+          </Field>
+
+          <Field label="Mock response (sandbox mode)">
+            <Textarea
+              value={data.mockResponse ?? ''}
+              onChange={(v) => patch({ mockResponse: v })}
+              placeholder={'{\n  "status": "SUCCESS",\n  "data": {\n    "nextState": "ADD_BANK"\n  }\n}'}
+              rows={5}
+              mono
+            />
+            <p className="mt-1.5 text-[10px] text-slate-400 leading-relaxed">
+              Used when the session token carries <code className="font-mono bg-slate-100 px-0.5 rounded">sandbox: true</code>.
+              Real HTTP call is skipped; this JSON is returned instead. Per design doc §6.3.
             </p>
           </Field>
         </>
@@ -447,6 +546,21 @@ function ConfigTab({
       {/* ── webhook ── */}
       {data.nodeType === 'webhook' && (
         <>
+          <Field label="Mode">
+            <Select
+              value={data.webhookMode ?? 'redirect'}
+              options={[
+                { value: 'redirect', label: '↗ External Redirect (DigiLocker, NACH portal)' },
+                { value: 'sdk',      label: '◇ SDK Launch (HyperVerge, Onfido)' },
+                { value: 'listener', label: '⬇ Incoming Webhook Listener' },
+              ]}
+              onChange={(v) => patch({ webhookMode: v as WorkflowNodeData['webhookMode'] })}
+            />
+            <p className="mt-1.5 text-[10px] text-slate-400 leading-relaxed">
+              <strong>Redirect</strong> — open external URL, wait for return. <strong>SDK</strong> — launch third-party SDK in same window. <strong>Listener</strong> — server waits for incoming webhook event.
+            </p>
+          </Field>
+
           <Field label="Display variant">
             <Select
               value={data.variant ?? 'auto'}
@@ -459,14 +573,142 @@ function ConfigTab({
               ]}
               onChange={(v) => patch({ variant: v })}
             />
-            <p className="mt-1.5 text-[10px] text-slate-400">Controls the UI shown to the borrower while waiting for the external callback.</p>
+            <p className="mt-1.5 text-[10px] text-slate-400">Controls the UI shown to the borrower while waiting.</p>
           </Field>
-          <Field label="Webhook URL">
-            <Input value={data.webhookUrl ?? ''} onChange={(v) => patch({ webhookUrl: v })} placeholder="https://example.com/webhook" mono />
+
+          {/* ── Redirect mode ── */}
+          {(data.webhookMode === 'redirect' || !data.webhookMode) && (
+            <>
+              <Field label="Redirect URL">
+                <Input
+                  value={data.redirectUrl ?? data.webhookUrl ?? ''}
+                  onChange={(v) => patch({ redirectUrl: v })}
+                  placeholder="https://digilocker.meripehchaan.gov.in/oauth/authorize?{{init.params}}"
+                  mono
+                />
+                <p className="mt-1.5 text-[10px] text-slate-400">
+                  Where to send the borrower. Supports <code className="font-mono bg-slate-100 px-0.5 rounded">{'{{variables}}'}</code>.
+                </p>
+              </Field>
+              <Field label="Return URL">
+                <Input
+                  value={data.returnUrl ?? ''}
+                  onChange={(v) => patch({ returnUrl: v })}
+                  placeholder="https://app.pice.one/callback/digilocker"
+                  mono
+                />
+                <p className="mt-1.5 text-[10px] text-slate-400">
+                  Where the borrower lands after completing the external flow. Pre-registered with the external provider.
+                </p>
+              </Field>
+              <Field label="Signing secret">
+                <Input
+                  value={data.webhookSecret ?? ''}
+                  onChange={(v) => patch({ webhookSecret: v })}
+                  placeholder="Optional — used to verify return signature"
+                />
+              </Field>
+            </>
+          )}
+
+          {/* ── SDK launch mode ── */}
+          {data.webhookMode === 'sdk' && (
+            <>
+              <Field label="SDK provider">
+                <Select
+                  value={data.sdkProvider ?? 'hyperverge'}
+                  options={[
+                    { value: 'hyperverge', label: 'HyperVerge (face match, liveness)' },
+                    { value: 'onfido',     label: 'Onfido (document + biometric)' },
+                    { value: 'jumio',      label: 'Jumio (ID verification)' },
+                    { value: 'custom',     label: 'Custom SDK' },
+                  ]}
+                  onChange={(v) => patch({ sdkProvider: v })}
+                />
+              </Field>
+              <Field label="Credentials endpoint">
+                <Input
+                  value={data.sdkCredentialsEndpoint ?? ''}
+                  onChange={(v) => patch({ sdkCredentialsEndpoint: v })}
+                  placeholder="/credit/loan/v1/hyperverge_credentials"
+                  mono
+                />
+                <p className="mt-1.5 text-[10px] text-slate-400">
+                  Backend endpoint that mints a short-lived auth token for the SDK.
+                </p>
+              </Field>
+              <Field label="SDK workflow ID">
+                <Input
+                  value={data.sdkWorkflowId ?? ''}
+                  onChange={(v) => patch({ sdkWorkflowId: v })}
+                  placeholder="pice_kyc_workflow_v2"
+                  mono
+                />
+                <p className="mt-1.5 text-[10px] text-slate-400">
+                  The provider&apos;s internal workflow reference (configured in their dashboard).
+                </p>
+              </Field>
+            </>
+          )}
+
+          {/* ── Listener mode ── */}
+          {data.webhookMode === 'listener' && (
+            <>
+              <Field label="Listener URL">
+                <Input
+                  value={data.webhookUrl ?? ''}
+                  onChange={(v) => patch({ webhookUrl: v })}
+                  placeholder="https://api.pice.one/webhooks/{{session.sessionId}}/nach"
+                  mono
+                />
+                <p className="mt-1.5 text-[10px] text-slate-400">
+                  URL the external system POSTs to. Auto-generated per session in production.
+                </p>
+              </Field>
+              <Field label="Expected events">
+                <Input
+                  value={data.expectedEvents ?? ''}
+                  onChange={(v) => patch({ expectedEvents: v })}
+                  placeholder="mandate.registered,mandate.failed"
+                  mono
+                />
+                <p className="mt-1.5 text-[10px] text-slate-400">
+                  Comma-separated event names this listener accepts. Other events 404.
+                </p>
+              </Field>
+              <Field label="Signature header">
+                <Input
+                  value={data.signatureHeader ?? 'X-Signature'}
+                  onChange={(v) => patch({ signatureHeader: v })}
+                  placeholder="X-NPCI-Signature"
+                  mono
+                />
+                <p className="mt-1.5 text-[10px] text-slate-400">
+                  Header name carrying the HMAC signature for verification.
+                </p>
+              </Field>
+              <Field label="HMAC secret">
+                <Input
+                  value={data.webhookSecret ?? ''}
+                  onChange={(v) => patch({ webhookSecret: v })}
+                  placeholder="Shared secret with the external system"
+                />
+              </Field>
+            </>
+          )}
+
+          <Field label="Timeout (seconds)">
+            <NumberInput
+              value={data.timeoutSeconds ?? 300}
+              min={5}
+              max={3600}
+              onChange={(v) => patch({ timeoutSeconds: v })}
+            />
+            <p className="mt-1.5 text-[10px] text-slate-400">
+              How long to wait for the external callback before timing out. DigiLocker: 300s. NACH: 600s.
+            </p>
           </Field>
-          <Field label="Signing secret">
-            <Input value={data.webhookSecret ?? ''} onChange={(v) => patch({ webhookSecret: v })} placeholder="Optional — used to verify payload signatures" />
-          </Field>
+
           <Field label="Button label">
             <Input value={data.submitLabel ?? ''} onChange={(v) => patch({ submitLabel: v })} placeholder="e.g. Continue" />
           </Field>
@@ -776,6 +1018,115 @@ function RequestBodyEditor({ value, onChange, availableVars }: {
         Use <code className="font-mono bg-slate-100 px-0.5 rounded">{'{{variables}}'}</code> for dynamic values. Click a token below to insert at cursor.
       </p>
       <VariablePicker groups={availableVars} />
+    </div>
+  )
+}
+
+// ─── Key-value editor (headers, query params, anything with str→str mapping) ──
+function KeyValueEditor({ value, onChange, availableVars, keyPlaceholder = 'header-name', valuePlaceholder = 'value or {{variable}}' }: {
+  value: string
+  onChange: (v: string) => void
+  availableVars?: VariableGroup[]
+  keyPlaceholder?: string
+  valuePlaceholder?: string
+}) {
+  type Row = { key: string; val: string }
+  const lastFocusedRef = useRef<{ index: number; el: HTMLInputElement | null }>({ index: -1, el: null })
+
+  const parseRows = (raw: string): Row[] => {
+    try {
+      const obj = raw ? JSON.parse(raw) as Record<string, string> : {}
+      return Object.entries(obj).map(([key, val]) => ({ key, val: String(val) }))
+    } catch {
+      return []
+    }
+  }
+
+  const [rows, setRows] = useState<Row[]>(() => parseRows(value))
+
+  const save = (next: Row[]) => {
+    setRows(next)
+    const obj = Object.fromEntries(next.filter((r) => r.key.trim()).map((r) => [r.key, r.val]))
+    onChange(Object.keys(obj).length === 0 ? '' : JSON.stringify(obj))
+  }
+
+  const updateRow = (i: number, patch: Partial<Row>) => save(rows.map((r, idx) => idx === i ? { ...r, ...patch } : r))
+  const addRow    = () => save([...rows, { key: '', val: '' }])
+  const removeRow = (i: number) => save(rows.filter((_, idx) => idx !== i))
+
+  const insertToken = (token: string) => {
+    const { index, el } = lastFocusedRef.current
+    if (index >= 0 && el) {
+      const start = el.selectionStart ?? el.value.length
+      const end   = el.selectionEnd   ?? el.value.length
+      const newVal = el.value.slice(0, start) + token + el.value.slice(end)
+      updateRow(index, { val: newVal })
+      requestAnimationFrame(() => {
+        el.focus()
+        el.setSelectionRange(start + token.length, start + token.length)
+      })
+    } else {
+      navigator.clipboard.writeText(token).catch(() => {})
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {rows.length === 0 && (
+        <p className="text-[11px] italic text-slate-400">No entries yet.</p>
+      )}
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-center gap-1.5">
+          <input
+            value={row.key}
+            onChange={(e) => updateRow(i, { key: e.target.value })}
+            placeholder={keyPlaceholder}
+            className="w-[140px] shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-[11px] font-mono text-slate-600 outline-none focus:border-blue-400"
+          />
+          <input
+            ref={(el) => {
+              if (document.activeElement === el) lastFocusedRef.current = { index: i, el }
+            }}
+            value={row.val}
+            onChange={(e) => updateRow(i, { val: e.target.value })}
+            onFocus={(e) => { lastFocusedRef.current = { index: i, el: e.currentTarget } }}
+            placeholder={valuePlaceholder}
+            className={`flex-1 rounded-lg border bg-white px-2 py-1.5 text-[11px] outline-none transition focus:border-blue-400 ${
+              /\{\{.+\}\}/.test(row.val) ? 'border-blue-300 text-blue-600 italic font-mono' : 'border-slate-200 text-slate-700'
+            }`}
+          />
+          <button
+            onClick={() => removeRow(i)}
+            className="shrink-0 text-[11px] text-slate-300 hover:text-red-400 transition px-1"
+            aria-label="Remove row"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={addRow}
+        className="text-[11px] font-semibold text-blue-500 hover:text-blue-600 transition"
+      >
+        + Add row
+      </button>
+      {availableVars && availableVars.length > 0 && (
+        <div className="rounded-lg border border-slate-100 bg-slate-50 p-2 mt-2">
+          <p className="text-[10px] font-semibold text-slate-500 mb-1.5">Variables — click to insert into focused value</p>
+          <div className="flex flex-wrap gap-1">
+            {availableVars.slice(0, 10).map((v) => (
+              <button
+                key={v.token}
+                onClick={() => insertToken(v.token)}
+                title={v.hint}
+                className="rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[9px] font-mono text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition"
+              >
+                {v.token}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

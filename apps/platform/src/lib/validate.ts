@@ -159,7 +159,7 @@ export function validateWorkflow({ nodes, edges, knownFlowIds, currentFlowId }: 
       }
     }
 
-    // api_request needs endpoint
+    // api_request — endpoint required + retry/timeout sanity
     if (d.nodeType === 'api_request' || d.nodeType === 'api') {
       if (!d.endpoint || !d.endpoint.trim()) {
         issues.push({
@@ -169,6 +169,60 @@ export function validateWorkflow({ nodes, edges, knownFlowIds, currentFlowId }: 
           message: `API node "${d.label || node.id}" has no endpoint configured.`,
           nodeId: node.id,
         })
+      }
+      // Timeout sanity
+      const timeout = d.timeoutSeconds ?? 30
+      if (timeout < 1 || timeout > 600) {
+        issues.push({
+          id: `api-timeout-${node.id}`,
+          severity: 'warning',
+          kind: 'config',
+          message: `API "${d.label || node.id}" timeout ${timeout}s is outside the typical 1-600s range.`,
+          nodeId: node.id,
+        })
+      }
+      // Retry count sanity
+      const retries = d.retryCount ?? 0
+      if (retries > 5) {
+        issues.push({
+          id: `api-retries-${node.id}`,
+          severity: 'warning',
+          kind: 'config',
+          message: `API "${d.label || node.id}" has ${retries} retries — high count can cascade load on the upstream service.`,
+          nodeId: node.id,
+        })
+      }
+      // Validate retry status codes are numeric
+      if (d.retryOnStatusCodes) {
+        const codes = d.retryOnStatusCodes.split(',').map((s) => s.trim()).filter(Boolean)
+        const bad = codes.filter((c) => !/^\d{3}$/.test(c))
+        if (bad.length > 0) {
+          issues.push({
+            id: `api-retry-codes-${node.id}`,
+            severity: 'error',
+            kind: 'config',
+            message: `API "${d.label || node.id}" retry codes ${bad.join(', ')} are not valid 3-digit HTTP status codes.`,
+            nodeId: node.id,
+          })
+        }
+      }
+      // Validate JSON-shaped fields parse cleanly
+      for (const [field, raw] of [
+        ['headers', d.headers],
+        ['queryParams', d.queryParams],
+        ['mockResponse', d.mockResponse],
+      ] as Array<[string, string | undefined]>) {
+        if (raw && raw.trim()) {
+          try { JSON.parse(raw) } catch {
+            issues.push({
+              id: `api-${field}-${node.id}`,
+              severity: 'error',
+              kind: 'config',
+              message: `API "${d.label || node.id}" ${field} is not valid JSON.`,
+              nodeId: node.id,
+            })
+          }
+        }
       }
     }
 
@@ -197,6 +251,63 @@ export function validateWorkflow({ nodes, edges, knownFlowIds, currentFlowId }: 
             severity: 'error',
             kind: 'reference',
             message: `Flow Connector references unknown flow "${d.flowId}".`,
+            nodeId: node.id,
+          })
+        }
+      }
+    }
+
+    // webhook — mode-specific required fields
+    if (d.nodeType === 'webhook') {
+      const mode = d.webhookMode ?? 'redirect'
+      if (mode === 'redirect') {
+        const url = d.redirectUrl || d.webhookUrl
+        if (!url || !url.trim()) {
+          issues.push({
+            id: `webhook-no-redirect-${node.id}`,
+            severity: 'error',
+            kind: 'config',
+            message: `Redirect webhook "${d.label || node.id}" has no redirect URL.`,
+            nodeId: node.id,
+          })
+        }
+      }
+      if (mode === 'sdk') {
+        if (!d.sdkProvider || !d.sdkProvider.trim()) {
+          issues.push({
+            id: `webhook-no-sdk-provider-${node.id}`,
+            severity: 'error',
+            kind: 'config',
+            message: `SDK webhook "${d.label || node.id}" has no provider configured.`,
+            nodeId: node.id,
+          })
+        }
+        if (!d.sdkCredentialsEndpoint || !d.sdkCredentialsEndpoint.trim()) {
+          issues.push({
+            id: `webhook-no-sdk-creds-${node.id}`,
+            severity: 'warning',
+            kind: 'config',
+            message: `SDK webhook "${d.label || node.id}" has no credentials endpoint — the SDK won't get an auth token.`,
+            nodeId: node.id,
+          })
+        }
+      }
+      if (mode === 'listener') {
+        if (!d.expectedEvents || !d.expectedEvents.trim()) {
+          issues.push({
+            id: `webhook-no-events-${node.id}`,
+            severity: 'warning',
+            kind: 'config',
+            message: `Listener webhook "${d.label || node.id}" accepts no expected events — all incoming payloads will be rejected.`,
+            nodeId: node.id,
+          })
+        }
+        if (!d.webhookSecret || !d.webhookSecret.trim()) {
+          issues.push({
+            id: `webhook-no-secret-${node.id}`,
+            severity: 'warning',
+            kind: 'config',
+            message: `Listener webhook "${d.label || node.id}" has no HMAC secret — incoming payloads can't be verified.`,
             nodeId: node.id,
           })
         }
