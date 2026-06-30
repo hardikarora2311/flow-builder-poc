@@ -50,6 +50,7 @@ interface BuilderState {
   updateNodeData: (id: string, patch: Partial<WorkflowNodeData>) => void
   deleteNode: (id: string) => void
   selectNode: (id: string | null) => void
+  replaceNodes: (nodes: WfNode[]) => void   // bulk replace (used by auto-layout)
   patchTheme: (patch: ThemePatch) => void
   setStatus: (status: 'draft' | 'published') => void
   markClean: () => void
@@ -120,6 +121,8 @@ export const useBuilderStore = create<BuilderState>()(
         })),
 
       selectNode: (id) => set({ selectedNodeId: id }),
+
+      replaceNodes: (nodes) => set({ nodes, dirty: true }),
 
       patchTheme: (patch) =>
         set((s) => ({

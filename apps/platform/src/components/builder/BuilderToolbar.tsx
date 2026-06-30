@@ -3,28 +3,40 @@
 import Link from 'next/link'
 import { useBuilderStore, useTemporal } from '@/lib/store'
 import { useSaveWorkflow, usePublishWorkflow } from '@/lib/api'
+import { autoLayout } from '@/lib/layout'
+import { IssueCount } from './IssuesPanel'
 
 export function BuilderToolbar({
   previewOpen,
   onTogglePreview,
   onAddNode,
+  onShowIssues,
 }: {
   previewOpen: boolean
   onTogglePreview: () => void
   onAddNode: () => void
+  onShowIssues?: () => void
 }) {
   const workflowId = useBuilderStore((s) => s.workflowId)
   const name = useBuilderStore((s) => s.name)
   const status = useBuilderStore((s) => s.status)
   const dirty = useBuilderStore((s) => s.dirty)
+  const nodes = useBuilderStore((s) => s.nodes)
+  const edges = useBuilderStore((s) => s.edges)
   const setName = useBuilderStore((s) => s.setName)
   const setStatus = useBuilderStore((s) => s.setStatus)
   const markClean = useBuilderStore((s) => s.markClean)
+  const replaceNodes = useBuilderStore((s) => s.replaceNodes)
   const toDefinition = useBuilderStore((s) => s.toDefinition)
   const undo = useTemporal((s) => s.undo)
   const redo = useTemporal((s) => s.redo)
   const canUndo = useTemporal((s) => s.pastStates.length > 0)
   const canRedo = useTemporal((s) => s.futureStates.length > 0)
+
+  const onTidyUp = () => {
+    const next = autoLayout(nodes, edges, { direction: 'LR' })
+    replaceNodes(next)
+  }
 
   const save = useSaveWorkflow()
   const publish = usePublishWorkflow()
@@ -67,6 +79,19 @@ export function BuilderToolbar({
       </div>
 
       <div className="flex items-center gap-2">
+        <IssueCount onClick={onShowIssues} />
+
+        <button
+          onClick={onTidyUp}
+          className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 hover:border-slate-300"
+          title="Auto-layout — recompute all node positions"
+        >
+          <span className="text-[11px] leading-none">✨</span>
+          Tidy up
+        </button>
+
+        <div className="mx-1 h-5 w-px bg-slate-200" />
+
         <button
           onClick={onAddNode}
           className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800 transition"

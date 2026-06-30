@@ -1,0 +1,294 @@
+import type { Edge } from 'reactflow'
+import type { WfNode } from './store'
+
+export type IssueSeverity = 'error' | 'warning' | 'info'
+
+export interface ValidationIssue {
+  id: string                    // unique key for React rendering
+  severity: IssueSeverity
+  kind: string                  // for grouping/filtering
+  message: string
+  nodeId?: string               // for click-to-focus
+  edgeId?: string
+}
+
+interface ValidateInput {
+  nodes: WfNode[]
+  edges: Edge[]
+  knownFlowIds: string[]        // for flow_connector reference checking
+  currentFlowId: string         // to detect self-reference
+}
+
+/**
+ * Walk the entire graph and surface every structural / semantic issue.
+ * Cheap enough to run on every store change.
+ */
+export function validateWorkflow({ nodes, edges, knownFlowIds, currentFlowId }: ValidateInput): ValidationIssue[] {
+  const issues: ValidationIssue[] = []
+  const nodeById = new Map(nodes.map((n) => [n.id, n]))
+  const incoming = new Map<string, Edge[]>()
+  const outgoing = new Map<string, Edge[]>()
+
+  for (const e of edges) {
+    if (!incoming.has(e.target)) incoming.set(e.target, [])
+    if (!outgoing.has(e.source)) outgoing.set(e.source, [])
+    incoming.get(e.target)!.push(e)
+    outgoing.get(e.source)!.push(e)
+  }
+
+  // ── Start node ──────────────────────────────────────────────────────────
+  const startNodes = nodes.filter((n) => n.data.nodeType === 'start')
+  if (startNodes.length === 0) {
+    issues.push({
+      id: 'no-start',
+      severity: 'error',
+      kind: 'structure',
+      message: 'Workflow has no Start node — borrowers cannot enter the flow.',
+    })
+  } else if (startNodes.length > 1) {
+    for (const n of startNodes.slice(1)) {
+      issues.push({
+        id: `multi-start-${n.id}`,
+        severity: 'error',
+        kind: 'structure',
+        message: 'Multiple Start nodes — only one is allowed.',
+        nodeId: n.id,
+      })
+    }
+  }
+
+  // ── Per-node checks ─────────────────────────────────────────────────────
+  for (const node of nodes) {
+    const d = node.data
+    const inEdges = incoming.get(node.id) ?? []
+    const outEdges = outgoing.get(node.id) ?? []
+
+    // Orphan: no in AND no out (start is allowed to have no incoming)
+    if (d.nodeType !== 'start' && inEdges.length === 0 && outEdges.length === 0) {
+      issues.push({
+        id: `orphan-${node.id}`,
+        severity: 'warning',
+        kind: 'orphan',
+        message: `"${d.label || node.id}" has no connections — it will never run.`,
+        nodeId: node.id,
+      })
+      continue
+    }
+
+    // Start without outgoing
+    if (d.nodeType === 'start' && outEdges.length === 0) {
+      issues.push({
+        id: `start-no-out-${node.id}`,
+        severity: 'error',
+        kind: 'wiring',
+        message: 'Start node has no outgoing edge — nothing happens after entry.',
+        nodeId: node.id,
+      })
+    }
+
+    // End with outgoing
+    if (d.nodeType === 'end' && outEdges.length > 0) {
+      issues.push({
+        id: `end-has-out-${node.id}`,
+        severity: 'error',
+        kind: 'wiring',
+        message: `End node "${d.label || node.id}" has outgoing edges — should be terminal.`,
+        nodeId: node.id,
+      })
+    }
+
+    // Non-end, non-router with no outgoing (excluding nodes that fan into errors)
+    if (d.nodeType !== 'end' && d.nodeType !== 'start' && outEdges.length === 0) {
+      issues.push({
+        id: `dead-end-${node.id}`,
+        severity: 'error',
+        kind: 'wiring',
+        message: `"${d.label || node.id}" has no outgoing edge — flow stalls here.`,
+        nodeId: node.id,
+      })
+    }
+
+    // edge_operation needs both true and false branches
+    if (d.nodeType === 'edge_operation' || d.nodeType === 'condition') {
+      const hasTrue = outEdges.some((e) => e.sourceHandle === 'true')
+      const hasFalse = outEdges.some((e) => e.sourceHandle === 'false')
+      if (!hasTrue) {
+        issues.push({
+          id: `cond-no-true-${node.id}`,
+          severity: 'error',
+          kind: 'wiring',
+          message: `Condition "${d.label || node.id}" has no TRUE branch — the green handle is unwired.`,
+          nodeId: node.id,
+        })
+      }
+      if (!hasFalse) {
+        issues.push({
+          id: `cond-no-false-${node.id}`,
+          severity: 'warning',
+          kind: 'wiring',
+          message: `Condition "${d.label || node.id}" has no FALSE branch — the red handle is unwired.`,
+          nodeId: node.id,
+        })
+      }
+      if (!d.condition || !d.condition.trim()) {
+        issues.push({
+          id: `cond-empty-${node.id}`,
+          severity: 'error',
+          kind: 'config',
+          message: `Condition "${d.label || node.id}" has no expression to evaluate.`,
+          nodeId: node.id,
+        })
+      }
+    }
+
+    // api_request needs endpoint
+    if (d.nodeType === 'api_request' || d.nodeType === 'api') {
+      if (!d.endpoint || !d.endpoint.trim()) {
+        issues.push({
+          id: `api-no-endpoint-${node.id}`,
+          severity: 'error',
+          kind: 'config',
+          message: `API node "${d.label || node.id}" has no endpoint configured.`,
+          nodeId: node.id,
+        })
+      }
+    }
+
+    // flow_connector checks
+    if (d.nodeType === 'flow_connector' || d.nodeType === 'connector') {
+      if (!d.flowId || !d.flowId.trim()) {
+        issues.push({
+          id: `subflow-no-id-${node.id}`,
+          severity: 'error',
+          kind: 'config',
+          message: `Flow Connector "${d.label || node.id}" has no target flow ID.`,
+          nodeId: node.id,
+        })
+      } else {
+        if (d.flowId === currentFlowId) {
+          issues.push({
+            id: `subflow-self-${node.id}`,
+            severity: 'warning',
+            kind: 'config',
+            message: `Flow Connector "${d.label || node.id}" references its own flow — infinite loop risk.`,
+            nodeId: node.id,
+          })
+        } else if (knownFlowIds.length > 0 && !knownFlowIds.includes(d.flowId)) {
+          issues.push({
+            id: `subflow-unknown-${node.id}`,
+            severity: 'error',
+            kind: 'reference',
+            message: `Flow Connector references unknown flow "${d.flowId}".`,
+            nodeId: node.id,
+          })
+        }
+      }
+    }
+
+    // web_form / document — field validation
+    if (d.nodeType === 'web_form' || d.nodeType === 'form' || d.nodeType === 'document') {
+      const fields = d.fields ?? []
+      if (fields.length === 0 && d.nodeType !== 'document') {
+        issues.push({
+          id: `form-no-fields-${node.id}`,
+          severity: 'warning',
+          kind: 'config',
+          message: `Form "${d.label || node.id}" has no fields — borrower has nothing to fill.`,
+          nodeId: node.id,
+        })
+      }
+      for (const f of fields) {
+        if (!f.id || !f.id.trim()) {
+          issues.push({
+            id: `field-no-id-${node.id}-${f.label}`,
+            severity: 'error',
+            kind: 'config',
+            message: `Field "${f.label}" in "${d.label || node.id}" has no ID.`,
+            nodeId: node.id,
+          })
+        }
+        if (!f.label || !f.label.trim()) {
+          issues.push({
+            id: `field-no-label-${node.id}-${f.id}`,
+            severity: 'warning',
+            kind: 'config',
+            message: `A field in "${d.label || node.id}" has no label.`,
+            nodeId: node.id,
+          })
+        }
+        if (f.type === 'select' && (!f.options || f.options.length === 0)) {
+          issues.push({
+            id: `field-no-options-${node.id}-${f.id}`,
+            severity: 'error',
+            kind: 'config',
+            message: `Select field "${f.label}" in "${d.label || node.id}" has no options.`,
+            nodeId: node.id,
+          })
+        }
+      }
+    }
+
+    // OTP node — channel/maxAttempts sanity
+    if (d.nodeType === 'otp') {
+      if (d.maxAttempts !== undefined && (d.maxAttempts < 1 || d.maxAttempts > 10)) {
+        issues.push({
+          id: `otp-attempts-${node.id}`,
+          severity: 'warning',
+          kind: 'config',
+          message: `OTP "${d.label || node.id}" max attempts is ${d.maxAttempts} — recommended 3-5.`,
+          nodeId: node.id,
+        })
+      }
+    }
+
+    // task / wait — polling sanity
+    if (d.nodeType === 'task' || d.nodeType === 'wait') {
+      const interval = d.pollingIntervalSeconds ?? 3
+      const timeout = d.pollingTimeoutSeconds ?? 120
+      if (interval > timeout) {
+        issues.push({
+          id: `poll-interval-${node.id}`,
+          severity: 'error',
+          kind: 'config',
+          message: `Task "${d.label || node.id}" polling interval (${interval}s) exceeds timeout (${timeout}s) — will never check.`,
+          nodeId: node.id,
+        })
+      }
+    }
+  }
+
+  // ── Reachability: every non-start node should be reachable from start ───
+  if (startNodes.length > 0) {
+    const start = startNodes[0]!
+    const reachable = new Set<string>([start.id])
+    const queue: string[] = [start.id]
+    while (queue.length > 0) {
+      const cur = queue.shift()!
+      for (const e of outgoing.get(cur) ?? []) {
+        if (!reachable.has(e.target)) {
+          reachable.add(e.target)
+          queue.push(e.target)
+        }
+      }
+    }
+    for (const node of nodes) {
+      if (!reachable.has(node.id) && node.data.nodeType !== 'start') {
+        // Skip if already flagged as orphan
+        if (issues.some((i) => i.nodeId === node.id && i.kind === 'orphan')) continue
+        issues.push({
+          id: `unreachable-${node.id}`,
+          severity: 'warning',
+          kind: 'reachability',
+          message: `"${node.data.label || node.id}" is unreachable from the Start node.`,
+          nodeId: node.id,
+        })
+      }
+    }
+  }
+
+  // Sort: errors first, then warnings, then info
+  const order: Record<IssueSeverity, number> = { error: 0, warning: 1, info: 2 }
+  issues.sort((a, b) => order[a.severity] - order[b.severity])
+
+  return issues
+}

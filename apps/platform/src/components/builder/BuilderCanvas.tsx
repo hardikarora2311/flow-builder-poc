@@ -6,7 +6,6 @@ import ReactFlow, {
   Controls,
   MiniMap,
   MarkerType,
-  ReactFlowProvider,
   useReactFlow,
   type ReactFlowInstance,
 } from 'reactflow'
@@ -82,10 +81,7 @@ function Flow() {
   )
 }
 
+/** Canvas — must be rendered inside a ReactFlowProvider (lifted to the builder page). */
 export function BuilderCanvas() {
-  return (
-    <ReactFlowProvider>
-      <Flow />
-    </ReactFlowProvider>
-  )
+  return <Flow />
 }

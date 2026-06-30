@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@hookform/resolvers": "^3.6.0",
     "@platform/core": "*",
     "@platform/react": "*",

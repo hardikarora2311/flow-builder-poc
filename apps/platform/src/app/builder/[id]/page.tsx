@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRequireAuth } from '@/components/auth/AuthProvider'
 import { useWorkflow } from '@/lib/api'
 import { useBuilderStore } from '@/lib/store'
+import { ReactFlowProvider } from 'reactflow'
 import { BuilderToolbar } from '@/components/builder/BuilderToolbar'
 import { BuilderCanvas } from '@/components/builder/BuilderCanvas'
 import { NodeInspector } from '@/components/builder/NodeInspector'
@@ -12,6 +13,7 @@ import { NodePalette } from '@/components/builder/NodePalette'
 import { ThemeEditor } from '@/components/builder/ThemeEditor'
 import { PreviewPanel } from '@/components/builder/PreviewPanel'
 import { NewNodeModal } from '@/components/builder/NewNodeModal'
+import { IssuesPanel } from '@/components/builder/IssuesPanel'
 
 export default function BuilderPage({ params }: { params: { id: string } }) {
   const { user } = useRequireAuth()
@@ -21,7 +23,7 @@ export default function BuilderPage({ params }: { params: { id: string } }) {
   const loadedId = useBuilderStore((s) => s.workflowId)
   const selectedNodeId = useBuilderStore((s) => s.selectedNodeId)
 
-  const [tab, setTab] = useState<'inspector' | 'theme'>('inspector')
+  const [tab, setTab] = useState<'inspector' | 'theme' | 'issues'>('inspector')
   const [previewOpen, setPreviewOpen] = useState(true)
   const [addNodeOpen, setAddNodeOpen] = useState(false)
   const [nerdMode, setNerdMode] = useState(false)
@@ -56,11 +58,13 @@ export default function BuilderPage({ params }: { params: { id: string } }) {
   }
 
   return (
+    <ReactFlowProvider>
     <div className="flex h-screen flex-col">
       <BuilderToolbar
         previewOpen={previewOpen}
         onTogglePreview={() => setPreviewOpen((o) => !o)}
         onAddNode={() => setAddNodeOpen(true)}
+        onShowIssues={() => setTab('issues')}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -96,8 +100,8 @@ export default function BuilderPage({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        {/* Right panel: Inspector + Theme tabs */}
-        <div className="flex w-[300px] shrink-0 flex-col border-l border-slate-200 bg-white">
+        {/* Right panel: Inspector + Theme + Issues tabs */}
+        <div className="flex w-[320px] shrink-0 flex-col border-l border-slate-200 bg-white">
           <div className="flex shrink-0 border-b border-slate-200">
             <TabButton active={tab === 'inspector'} onClick={() => setTab('inspector')}>
               Inspector
@@ -105,9 +109,14 @@ export default function BuilderPage({ params }: { params: { id: string } }) {
             <TabButton active={tab === 'theme'} onClick={() => setTab('theme')}>
               Theme
             </TabButton>
+            <TabButton active={tab === 'issues'} onClick={() => setTab('issues')}>
+              Issues
+            </TabButton>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">
-            {tab === 'inspector' ? <NodeInspector /> : <ThemeEditor />}
+            {tab === 'inspector' && <NodeInspector />}
+            {tab === 'theme' && <ThemeEditor />}
+            {tab === 'issues' && <IssuesPanel />}
           </div>
         </div>
 
@@ -116,6 +125,7 @@ export default function BuilderPage({ params }: { params: { id: string } }) {
 
       <NewNodeModal open={addNodeOpen} onClose={() => setAddNodeOpen(false)} />
     </div>
+    </ReactFlowProvider>
   )
 }
 
