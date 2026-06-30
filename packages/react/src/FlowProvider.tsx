@@ -14,6 +14,7 @@ import type {
   StepDefinition,
   FlowSession,
   ThemeConfig,
+  StepOverrideProps,
 } from '@platform/core'
 import { DEFAULT_THEME } from '@platform/core'
 
@@ -22,11 +23,13 @@ interface FlowContextValue {
   step: StepDefinition | null
   session: FlowSession | null
   theme: ThemeConfig
+  config: FlowConfig
   submit: (data: Record<string, unknown>) => Promise<void>
   back: () => Promise<void>
   error: Error | null
   retryable: boolean
   retry: () => void
+  stepOverrides: Record<string, React.ComponentType<StepOverrideProps>>
 }
 
 const FlowContext = createContext<FlowContextValue | null>(null)
@@ -45,13 +48,13 @@ export function FlowProvider({ children, ...config }: FlowProviderProps) {
   const [error, setError] = useState<Error | null>(null)
   const [retryable, setRetryable] = useState(false)
 
-  const startEngine = useCallback(() => {
+  // Stable reference for stepOverrides — avoid re-triggering engine on re-render
+  const stepOverridesRef = useRef(config.stepOverrides ?? {})
+  stepOverridesRef.current = config.stepOverrides ?? {}
+
+  const buildEngine = useCallback(() => {
     const engine = new FlowEngine(config)
     engineRef.current = engine
-
-    if (containerRef.current) {
-      engine.setThemeContainer(containerRef.current)
-    }
 
     const unsubs = [
       engine.on('stateChange', ({ to }) => setState(to)),
@@ -70,19 +73,39 @@ export function FlowProvider({ children, ...config }: FlowProviderProps) {
       }),
     ]
 
+    return { engine, unsubs }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config.sessionToken, config.flowId, config.apiBaseUrl])
+
+  const retry = useCallback(() => {
+    // Re-run the effect by creating a new engine
+    if (engineRef.current) {
+      engineRef.current.destroy()
+      engineRef.current = null
+    }
+    const { engine, unsubs } = buildEngine()
+    // setThemeContainer before init so applyCoreTheme writes to the scoped container
+    engine.setThemeContainer(containerRef.current)
+    engine.init()
+    return () => {
+      unsubs.forEach((u) => u())
+      engine.destroy()
+      engineRef.current = null
+    }
+  }, [buildEngine])
+
+  useEffect(() => {
+    const { engine, unsubs } = buildEngine()
+    // containerRef.current is populated after mount — must call before init()
+    engine.setThemeContainer(containerRef.current)
     engine.init()
 
     return () => {
       unsubs.forEach((u) => u())
-      engine.removeAllListeners()
+      engine.destroy()
       engineRef.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config.sessionToken, config.flowId, config.apiBaseUrl])
-
-  useEffect(() => {
-    return startEngine()
-  }, [startEngine])
+  }, [buildEngine])
 
   const submit = useCallback(async (data: Record<string, unknown>) => {
     await engineRef.current?.submit(data)
@@ -92,20 +115,18 @@ export function FlowProvider({ children, ...config }: FlowProviderProps) {
     await engineRef.current?.back()
   }, [])
 
-  const retry = useCallback(() => {
-    startEngine()
-  }, [startEngine])
-
   const ctx: FlowContextValue = {
     state,
     step,
     session,
     theme,
+    config,
     submit,
     back,
     error,
     retryable,
     retry,
+    stepOverrides: stepOverridesRef.current as Record<string, React.ComponentType<StepOverrideProps>>,
   }
 
   return (

@@ -1,6 +1,7 @@
 import { EventEmitter } from './EventEmitter'
 import { themeCache } from './ThemeCache'
 import { createApiClient } from '../api/client'
+import { interpolate } from './interpolate'
 import { DEFAULT_THEME } from '../types'
 import type {
   FlowConfig,
@@ -8,8 +9,10 @@ import type {
   FlowEngineEvents,
   EngineState,
   StepDefinition,
+  StepUIConfig,
   ThemeConfig,
   SessionTokenPayload,
+  VariableContext,
 } from '../types'
 
 function decodeJWT(token: string): SessionTokenPayload {
@@ -19,7 +22,6 @@ function decodeJWT(token: string): SessionTokenPayload {
     const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'))
     return JSON.parse(decoded) as SessionTokenPayload
   } catch {
-    // For MSW mock tokens that aren't real JWTs, return a default payload
     return {
       sessionId: 'mock-session',
       tenantId: 'mock-tenant',
@@ -46,8 +48,6 @@ function mergeTheme(base: ThemeConfig, overrides?: Partial<ThemeConfig>): ThemeC
     typography: { ...base.typography, ...overrides.typography },
     spacing: { ...base.spacing, ...overrides.spacing },
     borderRadius: { ...base.borderRadius, ...overrides.borderRadius },
-    // Only include `logo` when defined — exactOptionalPropertyTypes forbids
-    // assigning `undefined` to an optional property.
     ...(logo ? { logo } : {}),
   }
 }
@@ -59,13 +59,23 @@ export class FlowEngine extends EventEmitter<FlowEngineEvents> {
   private currentTheme: ThemeConfig = DEFAULT_THEME
   private api: ReturnType<typeof createApiClient>
   private themeContainer: HTMLElement | null = null
+  private initialData: Record<string, unknown> = {}
+  private lastApiResponse: Record<string, unknown> = {}
+
+  // Polling
+  private pollingTimer: ReturnType<typeof setInterval> | null = null
+  private pollingAborted = false
+  private pollingStepId: string | null = null
 
   constructor(private config: FlowConfig) {
     super()
-    this.api = createApiClient({
+    this.initialData = config.initialData ?? {}
+    const apiConfig: Parameters<typeof createApiClient>[0] = {
       baseUrl: config.apiBaseUrl,
       token: config.sessionToken,
-    })
+    }
+    if (config.getRefreshedToken) apiConfig.onRefreshToken = config.getRefreshedToken
+    this.api = createApiClient(apiConfig)
   }
 
   async init(): Promise<void> {
@@ -75,17 +85,17 @@ export class FlowEngine extends EventEmitter<FlowEngineEvents> {
       const payload = decodeJWT(this.config.sessionToken)
 
       // Apply core theme tokens synchronously — zero-latency, prevents FOUC
+      // Uses themeContainer if already set (scoped), otherwise document root
       this.applyCoreTheme(payload.themeCore)
 
-      // Parallel: fetch full theme + bootstrap session
       const [session, fullTheme] = await Promise.all([
         this.api.post<FlowSession>('/sessions/bootstrap', {
           flowId: this.config.flowId,
+          initialData: this.initialData,
         }),
         this.resolveFullTheme(payload),
       ])
 
-      // Apply full theme (may cause one additional paint — imperceptible)
       const mergedTheme = mergeTheme(fullTheme, this.config.theme)
       this.applyFullTheme(mergedTheme)
       this.currentTheme = mergedTheme
@@ -99,6 +109,7 @@ export class FlowEngine extends EventEmitter<FlowEngineEvents> {
 
   async submit(data: Record<string, unknown>): Promise<void> {
     if (!this.session || !this.currentStep) return
+    this.stopPolling()
     this.transition('submitting')
 
     try {
@@ -109,6 +120,9 @@ export class FlowEngine extends EventEmitter<FlowEngineEvents> {
         stepId: this.currentStep.id,
         data,
       })
+
+      // Store response for variable interpolation in subsequent nodes
+      this.lastApiResponse = result as Record<string, unknown>
 
       if ('complete' in result && result.complete) {
         this.transition('complete')
@@ -129,6 +143,7 @@ export class FlowEngine extends EventEmitter<FlowEngineEvents> {
 
   async back(): Promise<void> {
     if (!this.session || !this.currentStep?.allowBack) return
+    this.stopPolling()
     this.transition('loading')
 
     try {
@@ -149,60 +164,125 @@ export class FlowEngine extends EventEmitter<FlowEngineEvents> {
     }
   }
 
-  getCurrentTheme(): ThemeConfig {
-    return this.currentTheme
+  getCurrentTheme(): ThemeConfig { return this.currentTheme }
+  getState(): EngineState { return this.state }
+  getCurrentStep(): StepDefinition | null { return this.currentStep }
+  getSession(): FlowSession | null { return this.session }
+
+  /** Resolve a template string against the current session context. */
+  interpolate(template: string): string {
+    return interpolate(template, this.buildCtx())
   }
 
-  getState(): EngineState {
-    return this.state
+  /** Clean up — call when the host component unmounts. */
+  destroy(): void {
+    this.stopPolling()
+    this.removeAllListeners()
   }
 
-  getCurrentStep(): StepDefinition | null {
-    return this.currentStep
-  }
+  // ─── Private ────────────────────────────────────────────────────────────────
 
-  getSession(): FlowSession | null {
-    return this.session
+  private buildCtx(): VariableContext {
+    const ctx = (this.session?.context ?? {}) as Record<string, unknown>
+    // session.context is keyed by stepId; each value is the submitted form data
+    const contextByStep: Record<string, Record<string, unknown>> = {}
+    for (const [key, val] of Object.entries(ctx)) {
+      if (val && typeof val === 'object' && !Array.isArray(val)) {
+        contextByStep[key] = val as Record<string, unknown>
+      }
+    }
+    return {
+      init: this.initialData,
+      context: contextByStep,
+      response: this.lastApiResponse,
+      session: {
+        sessionId: this.session?.sessionId ?? '',
+        flowId: this.config.flowId,
+        tenantId: this.session?.tenantId ?? '',
+      },
+    }
   }
 
   private async loadStep(stepId: string): Promise<void> {
+    this.stopPolling()
     this.transition('loading')
     try {
       const step = await this.api.get<StepDefinition>(`/steps/${stepId}`)
       this.currentStep = step
       this.transition('active')
       this.emit('stepChange', { step, session: this.session! })
+      this.config.onStepChange?.(step, this.session!)
+
+      // Start polling if the step declares a polling interval
+      const uiConfig = step.uiConfig as StepUIConfig
+      if (uiConfig.pollingInterval && uiConfig.pollingInterval > 0) {
+        this.startPolling(step.id, uiConfig.pollingInterval, uiConfig.pollingTimeout ?? 120)
+      }
     } catch (err) {
       this.handleError(err, 'loadStep')
     }
   }
+
+  // ─── Polling ────────────────────────────────────────────────────────────────
+
+  private startPolling(stepId: string, intervalSec: number, timeoutSec: number): void {
+    this.pollingAborted = false
+    this.pollingStepId = stepId
+    const deadline = Date.now() + timeoutSec * 1000
+
+    this.pollingTimer = setInterval(async () => {
+      if (this.pollingAborted) return
+      if (Date.now() > deadline) {
+        this.stopPolling()
+        this.handleError(new Error('Polling timeout — state did not advance'), 'polling')
+        return
+      }
+      try {
+        const result = await this.api.get<{ currentStepId: string }>(
+          `/sessions/poll?sessionId=${this.session?.sessionId ?? ''}`
+        )
+        if (!this.pollingAborted && result.currentStepId !== stepId) {
+          this.stopPolling()
+          await this.loadStep(result.currentStepId)
+        }
+      } catch {
+        // Swallow network hiccups — keep polling
+      }
+    }, intervalSec * 1000)
+  }
+
+  private stopPolling(): void {
+    this.pollingAborted = true
+    if (this.pollingTimer !== null) {
+      clearInterval(this.pollingTimer)
+      this.pollingTimer = null
+    }
+    this.pollingStepId = null
+  }
+
+  // ─── Theme ──────────────────────────────────────────────────────────────────
 
   private async resolveFullTheme(payload: SessionTokenPayload): Promise<ThemeConfig> {
     const cached = themeCache.get(payload.tenantId)
     if (cached?.hash === payload.themeHash) return cached.theme
 
     try {
-      // In production: fetch from CloudFront CDN
-      // In POC: fetch from backend which returns the stored theme
-      const theme = await this.api.get<ThemeConfig>(
-        `/tenants/theme?hash=${payload.themeHash}`
-      )
+      const theme = await this.api.get<ThemeConfig>(`/tenants/theme?hash=${payload.themeHash}`)
       themeCache.set(payload.tenantId, { hash: payload.themeHash, theme })
       return theme
     } catch {
-      // Fallback to default — never crash because of theme
       return DEFAULT_THEME
     }
   }
 
   private applyCoreTheme(core: SessionTokenPayload['themeCore']): void {
-    // Apply to document root immediately — available before first paint
     if (typeof document === 'undefined') return
-    const root = document.documentElement
-    root.style.setProperty('--pf-color-primary', core.primary)
-    root.style.setProperty('--pf-color-background', core.background)
-    root.style.setProperty('--pf-font-family', core.fontFamily)
-    root.style.setProperty('--pf-radius-button', core.borderRadiusButton)
+    // Use scoped container when available to support multiple FlowProviders on same page
+    const target = this.themeContainer ?? document.documentElement
+    target.style.setProperty('--pf-color-primary', core.primary)
+    target.style.setProperty('--pf-color-background', core.background)
+    target.style.setProperty('--pf-font-family', core.fontFamily)
+    target.style.setProperty('--pf-radius-button', core.borderRadiusButton)
   }
 
   private applyFullTheme(theme: ThemeConfig): void {

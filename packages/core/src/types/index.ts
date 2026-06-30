@@ -8,7 +8,23 @@ export type EngineState =
   | 'complete'
   | 'error'
 
+// ─── Variable context (used by interpolate() utility) ────────────────────────
+
+export interface VariableContext {
+  init: Record<string, unknown>
+  context: Record<string, Record<string, unknown>>
+  response: Record<string, unknown>
+  session: { sessionId: string; flowId: string; tenantId: string }
+}
+
 // ─── Config ──────────────────────────────────────────────────────────────────
+
+export interface StepOverrideProps {
+  step: StepDefinition
+  isSubmitting: boolean
+  onSubmit: (data: Record<string, unknown>) => void
+  onBack: () => void
+}
 
 export interface FlowConfig {
   flowId: string
@@ -17,6 +33,11 @@ export interface FlowConfig {
   theme?: Partial<ThemeConfig>
   onComplete?: (result: FlowResult) => void
   onError?: (error: FlowError) => void
+  // DX extensions
+  initialData?: Record<string, unknown>
+  getRefreshedToken?: () => Promise<string>
+  onStepChange?: (step: StepDefinition, session: FlowSession) => void
+  stepOverrides?: Record<string, unknown>
 }
 
 // ─── Session ─────────────────────────────────────────────────────────────────
@@ -48,7 +69,7 @@ export interface SessionTokenPayload {
 
 // ─── Steps ───────────────────────────────────────────────────────────────────
 
-export type StepType = 'form' | 'otp' | 'document' | 'decision' | 'loading' | 'complete'
+export type StepType = 'form' | 'otp' | 'document' | 'decision' | 'loading' | 'complete' | 'sub-flow'
 
 export interface StepDefinition {
   id: string
@@ -69,6 +90,13 @@ export interface StepUIConfig {
   illustration?: string
   variant?: string
   kfs?: Record<string, string>
+  // Polling (task/loading steps)
+  pollingInterval?: number
+  pollingTimeout?: number
+  // Sub-flow (flow_connector steps)
+  childFlowId?: string
+  inputMap?: string
+  outputMap?: string
 }
 
 // ─── Fields ──────────────────────────────────────────────────────────────────
@@ -184,6 +212,12 @@ export type NodeType =
 export interface WorkflowNodeData {
   label: string
   nodeType: NodeType
+  // Universal step display — apply to any UI-producing node
+  subtitle?: string       // supporting text shown below the title
+  allowBack?: boolean     // show/hide back button (overrides flow-compiler index heuristic)
+  submitLabel?: string    // CTA button text (overrides hardcoded defaults)
+  backLabel?: string      // back button text (overrides hardcoded "Back")
+  variant?: string        // display variant: 'approved'|'rejected' for end, 'selfie'|'digilocker'|'enach'|'external'|'auto' for webhook, 'credit-offer' for layout
   // Form / web_form node
   stepTitle?: string
   fields?: FieldDefinition[]
@@ -208,6 +242,8 @@ export interface WorkflowNodeData {
   // Task node
   assignedRole?: string
   dueHours?: number
+  pollingIntervalSeconds?: number
+  pollingTimeoutSeconds?: number
   // Flow connector node
   flowId?: string
   inputMap?: string

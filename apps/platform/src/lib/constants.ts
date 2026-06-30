@@ -39,41 +39,72 @@ export function createDefaultNodeData(type: NodeType): WorkflowNodeData {
 
   switch (type) {
     case 'web_form':
-    case 'form': // backward compat
+    case 'form':
       return {
         ...base,
         stepTitle: 'New form step',
+        subtitle: '',
+        allowBack: true,
+        submitLabel: 'Continue',
+        backLabel: 'Back',
         fields: [
           {
             id: 'field_1',
             type: 'text',
             label: 'Field label',
+            placeholder: '',
             required: true,
             validation: [{ type: 'required', message: 'This field is required' }],
           },
         ],
       }
     case 'otp':
-      return { ...base, channel: 'sms', maxAttempts: 3 }
+      return {
+        ...base,
+        channel: 'sms',
+        maxAttempts: 3,
+        subtitle: 'Enter the 6-digit code we sent you',
+        allowBack: true,
+        submitLabel: 'Verify OTP',
+        backLabel: 'Back',
+      }
+    case 'document':
+      return {
+        ...base,
+        subtitle: '',
+        allowBack: true,
+        submitLabel: 'Continue',
+        backLabel: 'Back',
+        fields: [],
+      }
     case 'api_request':
-    case 'api': // backward compat
+    case 'api':
       return { ...base, method: 'POST', endpoint: 'https://api.example.com/resource', auth: 'bearer' }
     case 'edge_operation':
-    case 'condition': // backward compat
+    case 'condition':
       return { ...base, condition: 'value == true', trueLabel: 'Yes', falseLabel: 'No' }
     case 'webhook':
-      return { ...base, webhookUrl: 'https://example.com/webhook' }
+      return { ...base, variant: 'auto', webhookUrl: 'https://example.com/webhook', submitLabel: 'Continue' }
     case 'flow_connector':
-    case 'connector': // backward compat
+    case 'connector':
       return { ...base, label: 'Flow Connector', flowId: '' }
     case 'policy_engine':
-    case 'policy': // backward compat
+    case 'policy':
       return { ...base, policyId: '' }
     case 'task':
-    case 'wait': // backward compat
-      return { ...base, assignedRole: 'credit_officer', dueHours: 24 }
+    case 'wait':
+      return { ...base, assignedRole: 'credit_officer', dueHours: 24, subtitle: '', pollingIntervalSeconds: 3, pollingTimeoutSeconds: 120 }
     case 'layout':
-      return { ...base, label: 'Layout' }
+      return {
+        ...base,
+        label: 'Layout',
+        stepTitle: '',
+        subtitle: '',
+        submitLabel: 'Continue',
+        variant: 'approved',
+      }
+    case 'end':
+      return { ...base, variant: 'approved', subtitle: '' }
     default:
       return base
   }

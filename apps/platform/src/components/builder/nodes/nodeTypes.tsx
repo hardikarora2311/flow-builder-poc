@@ -154,8 +154,10 @@ function StartNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
 }
 
 function EndNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
-  const label = data.label ?? ''
-  const isSuccess = /live|complete|success|approved/i.test(label)
+  // Explicit variant wins; fall back to label heuristic
+  const isSuccess = data.variant
+    ? data.variant === 'approved'
+    : /live|complete|success|approved/i.test(data.label ?? '')
   return (
     <Card id={id} data={data} selected={selected} noSource>
       <Row>
@@ -171,6 +173,9 @@ function FormNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   const fields = data.fields ?? []
   return (
     <Card id={id} data={data} selected={selected}>
+      {data.subtitle && (
+        <p className="text-[9px] text-slate-400 italic truncate mb-1">{data.subtitle}</p>
+      )}
       {fields.length > 0 ? (
         <div className="flex flex-wrap gap-1">
           {fields.slice(0, 4).map((f) => (
@@ -274,7 +279,18 @@ function FlowConnectorNode({ id, data, selected }: NodeProps<WorkflowNodeData>) 
   return (
     <Card id={id} data={data} selected={selected}>
       {data.flowId ? (
-        <Row><code className="text-[9px] font-mono text-cyan-600 truncate">{data.flowId}</code></Row>
+        <>
+          <Row><code className="text-[9px] font-mono text-cyan-600 truncate">{data.flowId}</code></Row>
+          <a
+            href={`/builder/${data.flowId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="nodrag mt-1 inline-flex items-center gap-0.5 text-[9px] font-semibold text-cyan-600 hover:text-cyan-800 hover:underline transition"
+          >
+            Open ↗
+          </a>
+        </>
       ) : (
         <Row><span className="italic text-[10px] text-slate-400">No target flow set</span></Row>
       )}
@@ -285,11 +301,24 @@ function FlowConnectorNode({ id, data, selected }: NodeProps<WorkflowNodeData>) 
 function EdgeOperationNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
   return (
     <Card id={id} data={data} selected={selected} noSource>
-      <Row><span className="italic text-[10px] text-slate-400">Routing only — no config</span></Row>
+      {data.condition && (
+        <div className="rounded-lg bg-slate-50 border border-slate-100 px-2 py-1 mb-1.5">
+          <code className="block truncate text-[9px] font-mono text-slate-500">{data.condition}</code>
+        </div>
+      )}
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-600">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 inline-block" />
+          {data.trueLabel ?? 'True'}
+        </span>
+        <span className="flex items-center gap-1 text-[9px] font-bold text-red-500">
+          {data.falseLabel ?? 'False'}
+          <span className="h-1.5 w-1.5 rounded-full bg-red-500 inline-block" />
+        </span>
+      </div>
       <Handle type="target" position={Position.Left} style={H} />
-      {/* Multiple source handles for multiple conditional edges */}
-      <Handle id="0" type="source" position={Position.Right} style={{ ...H, top: '33%' }} />
-      <Handle id="1" type="source" position={Position.Right} style={{ ...H, top: '66%' }} />
+      <Handle id="true"  type="source" position={Position.Right} style={{ ...H_TRUE,  top: '42%' }} />
+      <Handle id="false" type="source" position={Position.Right} style={{ ...H_FALSE, top: '72%' }} />
     </Card>
   )
 }
@@ -321,8 +350,18 @@ function ConditionNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
 }
 
 function WebhookNode({ id, data, selected }: NodeProps<WorkflowNodeData>) {
+  const variantMap: Record<string, string> = {
+    digilocker: 'DigiLocker',
+    selfie: 'HyperVerge Selfie',
+    enach: 'eNach',
+    external: 'External',
+  }
+  const displayVariant = data.variant && data.variant !== 'auto' ? variantMap[data.variant] ?? data.variant : null
   return (
     <Card id={id} data={data} selected={selected}>
+      {displayVariant && (
+        <Row><Chip color="pink">{displayVariant}</Chip></Row>
+      )}
       {data.webhookUrl ? (
         <Row><code className="truncate text-[9px] font-mono text-slate-400">{data.webhookUrl.substring(0, 30)}</code></Row>
       ) : (

@@ -7,7 +7,7 @@ import type {
   WorkflowDefinition,
 } from '@platform/core'
 import { DEFAULT_THEME } from '@platform/core'
-import { getRuntimeFlow, getRuntimeStep } from '@/lib/flow-compiler'
+import { getRuntimeFlow, getRuntimeStep, registerRuntimeFlow } from '@/lib/flow-compiler'
 
 const BASE = '/mock-api'
 
@@ -185,7 +185,46 @@ workflows.set('demo-flow', {
   ],
 })
 
-// ─── PICE LOS Journey (published) — 38-node comprehensive graph ───────────────
+// ─── OTP Agreement Signing — reusable sub-workflow ────────────────────────────
+// This is the "Sign with OTP" concern extracted as a standalone flow.
+// Referenced by pice-los-journey via flow_connector node.
+
+workflows.set('otp-signing-flow', {
+  id: 'otp-signing-flow',
+  name: 'OTP Agreement Signing',
+  tenantId: 'mock-tenant',
+  status: 'published',
+  theme: PICE_THEME,
+  createdAt: now(),
+  updatedAt: now(),
+  nodes: [
+    { id: 'otp-sf-start',       type: 'start',       position: { x: 80,  y: 200 }, data: { label: 'Start',                        nodeType: 'start' } },
+    { id: 'otp-sf-gen-api',     type: 'api_request', position: { x: 400, y: 200 }, data: { label: 'Generate Agreement OTP',        nodeType: 'api_request', method: 'POST', endpoint: '/credit/drawdown/v1/generate_loan_agreement_otp', auth: 'bearer', requestBody: '{"sessionId": "{{init.sessionId}}"}' } },
+    { id: 'otp-sf-otp',         type: 'otp',         position: { x: 720, y: 200 }, data: { label: 'Sign Agreement — OTP',          nodeType: 'otp', channel: 'sms', maxAttempts: 3, subtitle: 'Enter the OTP sent to your registered mobile to digitally sign the loan agreement.' } },
+    { id: 'otp-sf-verify-api',  type: 'api_request', position: { x: 1040, y: 200 }, data: { label: 'Verify Agreement OTP',         nodeType: 'api_request', method: 'POST', endpoint: '/credit/drawdown/v1/verify_loan_agreement_otp', auth: 'bearer' } },
+    { id: 'otp-sf-cond',        type: 'edge_operation', position: { x: 1360, y: 200 }, data: { label: 'Signed?', nodeType: 'edge_operation', condition: 'data.isAgreementSigned === true', trueLabel: 'Signed', falseLabel: 'Failed' } },
+    { id: 'otp-sf-transition',  type: 'api_request', position: { x: 1680, y: 200 }, data: { label: 'Transition: SANCTION_LETTER',  nodeType: 'api_request', method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
+    { id: 'otp-sf-signed',      type: 'end',         position: { x: 2000, y: 200 }, data: { label: 'Agreement Signed',             nodeType: 'end', variant: 'approved', subtitle: 'Your loan agreement has been signed successfully.' } },
+    { id: 'otp-sf-failed',      type: 'end',         position: { x: 1360, y: 400 }, data: { label: 'OTP Verification Failed',      nodeType: 'end', variant: 'rejected', subtitle: 'OTP attempts exhausted. Please contact support.' } },
+  ],
+  edges: [
+    { id: 'otp-e1', source: 'otp-sf-start',      target: 'otp-sf-gen-api' },
+    { id: 'otp-e2', source: 'otp-sf-gen-api',    target: 'otp-sf-otp' },
+    { id: 'otp-e3', source: 'otp-sf-otp',        target: 'otp-sf-verify-api' },
+    { id: 'otp-e4', source: 'otp-sf-verify-api', target: 'otp-sf-cond' },
+    { id: 'otp-e5', source: 'otp-sf-cond',       target: 'otp-sf-transition', sourceHandle: 'true',  label: 'Signed' },
+    { id: 'otp-e6', source: 'otp-sf-cond',       target: 'otp-sf-failed',     sourceHandle: 'false', label: 'Failed' },
+    { id: 'otp-e7', source: 'otp-sf-transition', target: 'otp-sf-signed' },
+  ],
+})
+
+// Pre-register so the SDK runtime can serve it without builder compile
+{
+  const wf = workflows.get('otp-signing-flow')!
+  registerRuntimeFlow('otp-signing-flow', wf.nodes, wf.edges)
+}
+
+// ─── PICE LOS Journey (published) ─────────────────────────────────────────────
 
 workflows.set('pice-los-journey', {
   id: 'pice-los-journey',
@@ -197,23 +236,37 @@ workflows.set('pice-los-journey', {
   updatedAt: now(),
   nodes: [
     // ── Init ──────────────────────────────────────────────────────────────
-    { id: 'n-start',    type: 'start',       position: { x: 80,   y: 200 }, data: { label: 'Start',             nodeType: 'start' } },
-    { id: 'n-get-state',type: 'api_request', position: { x: 400,  y: 200 }, data: { label: 'GET Current State', nodeType: 'api_request', method: 'GET', endpoint: '/credit/loan/v1/current_state', auth: 'bearer' } },
+    { id: 'n-start',       type: 'start',         position: { x: 80,   y: 200 }, data: { label: 'Start',                          nodeType: 'start' } },
+    { id: 'n-get-state',   type: 'api_request',   position: { x: 400,  y: 200 }, data: { label: 'GET Current State',              nodeType: 'api_request',   method: 'GET',  endpoint: '/credit/loan/v1/current_state',    auth: 'bearer' } },
+    // ── State router chain — re-entry routing for all StateMachineStates ─────
+    // Each node checks one state and branches true→ that step, false→ next router.
+    { id: 'n-state-router',   type: 'edge_operation', position: { x: 720, y: 200  }, data: { label: 'Route: ADD_EMAIL?',           nodeType: 'edge_operation', condition: 'currentState === "ADD_EMAIL"',           trueLabel: 'ADD_EMAIL',           falseLabel: '→ next' } },
+    { id: 'n-router-2',       type: 'edge_operation', position: { x: 720, y: 360  }, data: { label: 'Route: ADD_BANK?',            nodeType: 'edge_operation', condition: 'currentState === "ADD_BANK"',            trueLabel: 'ADD_BANK',            falseLabel: '→ next' } },
+    { id: 'n-router-3',       type: 'edge_operation', position: { x: 720, y: 520  }, data: { label: 'Route: OFFER_SCREEN_GROMOR?', nodeType: 'edge_operation', condition: 'currentState === "OFFER_SCREEN_GROMOR"', trueLabel: 'OFFER_SCREEN_GROMOR', falseLabel: '→ next' } },
+    { id: 'n-router-4',       type: 'edge_operation', position: { x: 720, y: 680  }, data: { label: 'Route: SELFIE_INIT?',         nodeType: 'edge_operation', condition: 'currentState === "SELFIE_INITIALISATION"',trueLabel: 'SELFIE_INIT',         falseLabel: '→ next' } },
+    { id: 'n-router-5',       type: 'edge_operation', position: { x: 720, y: 840  }, data: { label: 'Route: ENACH_INITIATION?',    nodeType: 'edge_operation', condition: 'currentState === "ENACH_INITIATION"',    trueLabel: 'ENACH_INITIATION',    falseLabel: '→ next' } },
+    { id: 'n-router-6',       type: 'edge_operation', position: { x: 720, y: 1000 }, data: { label: 'Route: WAITING_ENACH?',       nodeType: 'edge_operation', condition: 'currentState === "WAITING_ENACH"',       trueLabel: 'WAITING_ENACH',       falseLabel: '→ next' } },
+    { id: 'n-router-7',       type: 'edge_operation', position: { x: 720, y: 1160 }, data: { label: 'Route: SANCTION_LETTER?',     nodeType: 'edge_operation', condition: 'currentState === "SANCTION_LETTER"',     trueLabel: 'SANCTION_LETTER',     falseLabel: '→ next' } },
+    { id: 'n-router-8',       type: 'edge_operation', position: { x: 720, y: 1320 }, data: { label: 'Route: PRE_CREDIT_LIVE?',     nodeType: 'edge_operation', condition: 'currentState === "PRE_CREDIT_LIVE"',     trueLabel: 'PRE_CREDIT_LIVE',     falseLabel: '→ next' } },
+    { id: 'n-router-9',       type: 'edge_operation', position: { x: 720, y: 1480 }, data: { label: 'Route: CREDIT_LIVE?',         nodeType: 'edge_operation', condition: 'currentState === "CREDIT_LIVE"',         trueLabel: 'CREDIT_LIVE',         falseLabel: 'WAITING / fallback' } },
+
+    // ── WAITING fallback (generic processing state) ────────────────────────
+    { id: 'n-waiting-state', type: 'task', position: { x: 720, y: 1640 }, data: { label: 'WAITING — Processing', nodeType: 'task', assignedRole: 'credit_officer', dueHours: 24 } },
 
     // ── Step 1: Email ─────────────────────────────────────────────────────
     {
-      id: 'n-email-form', type: 'web_form', position: { x: 720, y: 200 },
+      id: 'n-email-form', type: 'web_form', position: { x: 1040, y: 200 },
       data: { label: 'Add Email', nodeType: 'web_form', stepTitle: 'Add Your Work Email',
         fields: [
           { id: 'email', type: 'email', label: 'Work Email', placeholder: 'you@company.com', required: true, validation: [{ type: 'required', message: 'Email is required' }] },
         ],
       },
     },
-    { id: 'n-email-transition-api', type: 'api_request', position: { x: 1040, y: 200 }, data: { label: 'Transition: ADD_EMAIL', nodeType: 'api_request', method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
+    { id: 'n-email-transition-api', type: 'api_request', position: { x: 1360, y: 200 }, data: { label: 'Transition: ADD_EMAIL', nodeType: 'api_request', method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
 
     // ── Step 2: Bank Account ──────────────────────────────────────────────
     {
-      id: 'n-add-bank-form', type: 'web_form', position: { x: 1360, y: 200 },
+      id: 'n-add-bank-form', type: 'web_form', position: { x: 1680, y: 200 },
       data: { label: 'Add Bank Account', nodeType: 'web_form', stepTitle: 'Add Your Bank Account',
         fields: [
           { id: 'accountNumber', type: 'text',   label: 'Account Number', placeholder: 'Enter account number', required: true, validation: [{ type: 'required', message: 'Account number is required' }] },
@@ -222,43 +275,35 @@ workflows.set('pice-los-journey', {
         ],
       },
     },
-    { id: 'n-add-bank-api',     type: 'api_request',    position: { x: 1680, y: 200 }, data: { label: 'POST add_bank_account',  nodeType: 'api_request',    method: 'POST', endpoint: '/user-gst/v1/add_bank_account', auth: 'bearer' } },
-    { id: 'n-bank-verify-cond', type: 'edge_operation', position: { x: 2000, y: 200 }, data: { label: 'Bank Verified?',         nodeType: 'edge_operation', condition: 'data.accountStatus === "SUCCESS"', trueLabel: 'Verified', falseLabel: 'Failed' } },
+    { id: 'n-add-bank-api', type: 'api_request', position: { x: 2000, y: 200 }, data: { label: 'Transition: ADD_BANK', nodeType: 'api_request', method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
+
+    // ── Step 3: Credit Offer — OFFER_SCREEN_GROMOR ───────────────────────
+    { id: 'n-offer-screen-gromor',  type: 'layout',      position: { x: 2320, y: 200 }, data: { label: 'Credit Offer Screen', nodeType: 'layout', stepTitle: "Congratulations! You're Pre-Approved", condition: 'Your credit line is ready. Complete KYC to activate it instantly.', trueLabel: 'Proceed to KYC' } },
+    { id: 'n-gromor-transition',    type: 'api_request', position: { x: 2640, y: 200 }, data: { label: 'Transition: OFFER_SCREEN_GROMOR (Stage 1)', nodeType: 'api_request', method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
+
+    // ── Step 4: Aadhaar / DigiLocker ─────────────────────────────────────
+    { id: 'n-digilocker-form',     type: 'webhook',       position: { x: 2960, y: 200 }, data: { label: 'DigiLocker — Aadhaar OAuth',    nodeType: 'webhook',       webhookUrl: 'digilocker.meripehchaan.gov.in · opens in new tab, waits for OAuth callback' } },
+    { id: 'n-digilocker-confirm',  type: 'api_request',   position: { x: 3280, y: 200 }, data: { label: 'Aadhaar Callback Received',       nodeType: 'api_request',   method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
+    { id: 'n-aadhaar-result-cond', type: 'edge_operation',position: { x: 3600, y: 200 }, data: { label: 'Aadhaar Result?',                 nodeType: 'edge_operation',condition: 'nextState === "SELFIE_INITIALISATION"', trueLabel: '→ Selfie', falseLabel: 'AADHAAR_FAILED' } },
+
+    // ── Step 5: Selfie / HyperVerge SDK ──────────────────────────────────
+    { id: 'n-selfie-creds-api',   type: 'api_request',    position: { x: 3920, y: 200 }, data: { label: 'Transition: SELFIE_INITIALISATION (Stage 1)', nodeType: 'api_request',    method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
+    { id: 'n-selfie-form',        type: 'webhook',         position: { x: 4240, y: 200 }, data: { label: 'HyperVerge KYC SDK — Selfie',                 nodeType: 'webhook',         webhookUrl: 'HyperKyc.launch(authToken, workflowId) · SDK callback fires on complete' } },
+    { id: 'n-selfie-confirm-api', type: 'api_request',    position: { x: 4560, y: 200 }, data: { label: 'Transition: SELFIE_INITIALISATION (Stage 2)', nodeType: 'api_request',    method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
+    { id: 'n-selfie-result-cond', type: 'edge_operation', position: { x: 4880, y: 200 }, data: { label: 'Selfie Result?',                               nodeType: 'edge_operation', condition: 'nextState === "ENACH_INITIATION"', trueLabel: '→ eNach', falseLabel: 'Failed' } },
+
+    // ── Step 6: eNach — NACH Bank Portal ─────────────────────────────────
+    { id: 'n-enach-init-api',   type: 'api_request',   position: { x: 5200, y: 200 }, data: { label: 'Transition: ENACH_INITIATION (Stage 1)',nodeType: 'api_request',   method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
+    { id: 'n-enach-form',       type: 'webhook',        position: { x: 5520, y: 200 }, data: { label: 'NACH Bank Portal — Mandate Setup',    nodeType: 'webhook',        webhookUrl: 'nach.npci.org.in · redirects to bank portal, webhook on mandate registration' } },
+    { id: 'n-enach-wait-api',   type: 'api_request',   position: { x: 5840, y: 200 }, data: { label: 'Transition: WAITING_ENACH',            nodeType: 'api_request',   method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
+    { id: 'n-waiting-enach',    type: 'task',           position: { x: 6160, y: 200 }, data: { label: 'WAITING_ENACH — Poll for Mandate',     nodeType: 'task',          assignedRole: 'credit_officer', dueHours: 24 } },
+    { id: 'n-enach-result-cond',type: 'edge_operation', position: { x: 6480, y: 200 }, data: { label: 'eNach Confirmed?',                     nodeType: 'edge_operation',condition: 'nextState === "SANCTION_LETTER"', trueLabel: '→ Sanction Letter', falseLabel: 'ENACH_FAILED' } },
+
+    // ── Step 7: Sanction Letter / KFS ─────────────────────────────────────
+    { id: 'n-kfs-api', type: 'api_request', position: { x: 6800, y: 200 }, data: { label: 'GET Current State (SANCTION_LETTER response)', nodeType: 'api_request', method: 'GET', endpoint: '/credit/loan/v1/current_state', auth: 'bearer' } },
     {
-      id: 'n-confirm-bank-form', type: 'web_form', position: { x: 2320, y: 200 },
-      data: { label: 'Confirm Bank Details', nodeType: 'web_form', stepTitle: 'Confirm Your Bank Details',
-        fields: [
-          { id: 'accountName', type: 'text', label: 'Account Holder Name (as per bank)', required: true, validation: [{ type: 'required', message: 'Confirm the account name' }] },
-        ],
-      },
-    },
-    { id: 'n-confirm-bank-api',    type: 'api_request', position: { x: 2640, y: 200 }, data: { label: 'POST confirm_bank_details', nodeType: 'api_request', method: 'POST', endpoint: '/user-gst/v1/confirm_bank_details', auth: 'bearer' } },
-    { id: 'n-bank-transition-api', type: 'api_request', position: { x: 2960, y: 200 }, data: { label: 'Transition: ADD_BANK',       nodeType: 'api_request', method: 'POST', endpoint: '/credit/loan/v1/transition_state',  auth: 'bearer' } },
-
-    // ── Step 3: Aadhaar / DigiLocker ─────────────────────────────────────
-    { id: 'n-digilocker-init-api', type: 'api_request',    position: { x: 3280, y: 200 }, data: { label: 'Initiate DigiLocker',        nodeType: 'api_request',    method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
-    { id: 'n-digilocker-form',     type: 'webhook',         position: { x: 3600, y: 200 }, data: { label: 'DigiLocker — Aadhaar Fetch', nodeType: 'webhook',         webhookUrl: 'digilocker.meripehchaan.gov.in · waits for OAuth callback' } },
-    { id: 'n-digilocker-confirm',  type: 'api_request',    position: { x: 3920, y: 200 }, data: { label: 'Confirm DigiLocker',          nodeType: 'api_request',    method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
-    { id: 'n-aadhaar-result-cond', type: 'edge_operation', position: { x: 4240, y: 200 }, data: { label: 'Aadhaar Verified?',           nodeType: 'edge_operation', condition: 'nextState === "SELFIE_INITIALISATION"', trueLabel: '→ Selfie', falseLabel: 'Failed' } },
-
-    // ── Step 4: Selfie / HyperVerge SDK ──────────────────────────────────
-    { id: 'n-selfie-creds-api',   type: 'api_request',    position: { x: 4560, y: 200 }, data: { label: 'GET HyperVerge Creds',        nodeType: 'api_request',    method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
-    { id: 'n-selfie-form',        type: 'webhook',         position: { x: 4880, y: 200 }, data: { label: 'HyperVerge KYC SDK — Selfie', nodeType: 'webhook',         webhookUrl: 'HyperKyc.launch(authToken, workflowId) · SDK callback fires on complete' } },
-    { id: 'n-selfie-confirm-api', type: 'api_request',    position: { x: 5200, y: 200 }, data: { label: 'Confirm Selfie Result',        nodeType: 'api_request',    method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
-    { id: 'n-selfie-result-cond', type: 'edge_operation', position: { x: 5520, y: 200 }, data: { label: 'Selfie Approved?',             nodeType: 'edge_operation', condition: 'selfieResult === "auto_approved"', trueLabel: '→ eNach', falseLabel: 'Failed' } },
-
-    // ── Step 5: eNach — NACH Bank Portal ─────────────────────────────────
-    { id: 'n-enach-init-api', type: 'api_request', position: { x: 5840, y: 200 }, data: { label: 'Initiate eNach Mandate',           nodeType: 'api_request', method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
-    { id: 'n-enach-form',     type: 'webhook',      position: { x: 6160, y: 200 }, data: { label: 'NACH Bank Portal — Mandate Setup', nodeType: 'webhook',      webhookUrl: 'nach.npci.org.in · redirects to bank portal, webhook on mandate registration' } },
-    { id: 'n-enach-wait-api',    type: 'api_request', position: { x: 6480, y: 200 }, data: { label: 'Transition: ENACH_INITIATION', nodeType: 'api_request', method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
-    { id: 'n-waiting-enach',     type: 'task',         position: { x: 6800, y: 200 }, data: { label: 'WAITING_ENACH — Poll',         nodeType: 'task', assignedRole: 'credit_officer', dueHours: 24 } },
-    { id: 'n-enach-result-cond', type: 'edge_operation', position: { x: 7120, y: 200 }, data: { label: 'eNach Confirmed?', nodeType: 'edge_operation', condition: 'currentState === "SANCTION_LETTER"', trueLabel: '→ Loan Offer', falseLabel: 'Failed' } },
-
-    // ── Step 6: Loan Offer / KFS ──────────────────────────────────────────
-    { id: 'n-kfs-api', type: 'api_request', position: { x: 7440, y: 200 }, data: { label: 'GET KFS Details', nodeType: 'api_request', method: 'POST', endpoint: '/credit/drawdown/v1/get_kfs_details', auth: 'bearer' } },
-    {
-      id: 'n-offer-screen', type: 'web_form', position: { x: 7760, y: 200 },
-      data: { label: 'Loan Offer', nodeType: 'web_form', stepTitle: 'Your Loan Offer',
+      id: 'n-offer-screen', type: 'web_form', position: { x: 7120, y: 200 },
+      data: { label: 'Sanction Letter / KFS', nodeType: 'web_form', stepTitle: 'Your Loan Offer',
         fields: [
           { id: 'principalAmount', type: 'text',     label: 'Loan Amount (₹)',      required: false, validation: [] },
           { id: 'interest',        type: 'text',     label: 'Total Interest (₹)',    required: false, validation: [] },
@@ -270,70 +315,129 @@ workflows.set('pice-los-journey', {
       },
     },
 
-    // ── Step 7: OTP Signing ───────────────────────────────────────────────
-    { id: 'n-otp-gen-api',          type: 'api_request',    position: { x: 8080, y: 200 }, data: { label: 'Generate Loan Agreement OTP', nodeType: 'api_request',    method: 'POST', endpoint: '/credit/drawdown/v1/generate_loan_agreement_otp', auth: 'bearer' } },
-    { id: 'n-otp-sign',             type: 'otp',             position: { x: 8400, y: 200 }, data: { label: 'Sign Agreement — OTP',        nodeType: 'otp',             channel: 'sms', maxAttempts: 3 } },
-    { id: 'n-otp-verify-api',       type: 'api_request',    position: { x: 8720, y: 200 }, data: { label: 'Verify Loan Agreement OTP',   nodeType: 'api_request',    method: 'POST', endpoint: '/credit/drawdown/v1/verify_loan_agreement_otp', auth: 'bearer' } },
-    { id: 'n-agreement-cond',       type: 'edge_operation', position: { x: 9040, y: 200 }, data: { label: 'Agreement Signed?',           nodeType: 'edge_operation', condition: 'data.isAgreementSigned === true', trueLabel: 'Signed', falseLabel: 'Failed' } },
-    { id: 'n-agreement-transition', type: 'api_request',    position: { x: 9360, y: 200 }, data: { label: 'Transition: SANCTION_LETTER',  nodeType: 'api_request',    method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
+    // ── Step 8: OTP Agreement Signing — sub-workflow ──────────────────────
+    // The full sign-with-OTP logic lives in 'otp-signing-flow' and is reused here.
+    {
+      id: 'n-otp-signing-connector', type: 'flow_connector', position: { x: 7440, y: 200 },
+      data: {
+        label: 'OTP Agreement Signing',
+        nodeType: 'flow_connector',
+        flowId: 'otp-signing-flow',
+        subtitle: 'Reusable sub-flow: generate OTP → user signs → verify → transition SANCTION_LETTER',
+        inputMap: '{{session.sessionId}} -> child.init.sessionId\n{{init.userId}} -> child.init.userId',
+        outputMap: '{{child.result.status}} -> context.signing.result',
+      },
+    },
 
-    // ── Step 8: Activation ────────────────────────────────────────────────
-    { id: 'n-activate-api',    type: 'api_request', position: { x: 9680, y: 200 }, data: { label: 'Activate Credit Line',   nodeType: 'api_request', method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
-    { id: 'n-activation-wait', type: 'task',         position: { x: 10000, y: 200 }, data: { label: 'Poll Until CREDIT_LIVE', nodeType: 'task', assignedRole: 'credit_officer', dueHours: 24 } },
+    // ── Step 9: Activation ────────────────────────────────────────────────
+    { id: 'n-pre-credit-live', type: 'task', position: { x: 7760, y: 200 }, data: { label: 'PRE_CREDIT_LIVE — Activating', nodeType: 'task', assignedRole: 'credit_officer', dueHours: 24 } },
 
-    // ── Step 9: Terminal Success ──────────────────────────────────────────
-    { id: 'n-credit-live', type: 'end', position: { x: 10320, y: 200 }, data: { label: 'CREDIT_LIVE — Journey Complete', nodeType: 'end' } },
+    // ── Terminal ──────────────────────────────────────────────────────────
+    { id: 'n-credit-live', type: 'end', position: { x: 8080, y: 200 }, data: { label: 'CREDIT_LIVE — Journey Complete', nodeType: 'end' } },
 
     // ── Error / retry states (y = 480) ────────────────────────────────────
     { id: 'n-bank-failed',    type: 'end', position: { x: 2160, y: 480 }, data: { label: 'Bank Verification Failed',           nodeType: 'end' } },
-    { id: 'n-aadhaar-failed', type: 'end', position: { x: 4400, y: 480 }, data: { label: 'AADHAAR_FAILED — Retry',             nodeType: 'end' } },
-    { id: 'n-selfie-failed',  type: 'end', position: { x: 5680, y: 480 }, data: { label: 'SELFIE_VERIFICATION_FAILED — Retry', nodeType: 'end' } },
-    { id: 'n-enach-failed',   type: 'end', position: { x: 7280, y: 480 }, data: { label: 'ENACH_FAILED — Retry',               nodeType: 'end' } },
-    { id: 'n-bureau-failed',  type: 'end', position: { x: 4400, y: 680 }, data: { label: 'BUREAU_FAILED — PAN Journey',        nodeType: 'end' } },
-    { id: 'n-video-kyc',      type: 'end', position: { x: 5680, y: 680 }, data: { label: 'VIDEO_KYC_PENDING',                  nodeType: 'end' } },
-    { id: 'n-terminate',      type: 'end', position: { x: 9200, y: 480 }, data: { label: 'TERMINATION — Application Rejected', nodeType: 'end' } },
+    { id: 'n-aadhaar-failed', type: 'end', position: { x: 3760, y: 480 }, data: { label: 'AADHAAR_FAILED — Retry DigiLocker', nodeType: 'end' } },
+    { id: 'n-selfie-failed',  type: 'end', position: { x: 5040, y: 480 }, data: { label: 'SELFIE_VERIFICATION_FAILED',        nodeType: 'end' } },
+    { id: 'n-enach-failed',   type: 'end', position: { x: 6640, y: 480 }, data: { label: 'ENACH_FAILED — Retry',              nodeType: 'end' } },
+    { id: 'n-video-kyc',      type: 'end', position: { x: 5040, y: 680 }, data: { label: 'VIDEO_KYC_PENDING',                 nodeType: 'end' } },
+    { id: 'n-terminate',      type: 'end', position: { x: 7600, y: 480 }, data: { label: 'TERMINATION — Application Rejected',nodeType: 'end' } },
+
+    // ── BUREAU_FAILED recovery flow (y = 680) ─────────────────────────────
+    {
+      id: 'n-bureau-pan-form', type: 'web_form', position: { x: 3600, y: 680 },
+      data: { label: 'PAN Journey — Mobile Verify', nodeType: 'web_form', stepTitle: 'Verify Your PAN-Linked Mobile',
+        fields: [
+          { id: 'mobileNumber', type: 'phone', label: 'PAN-Linked Mobile Number', placeholder: '+91 98765 43210', required: true, validation: [{ type: 'required', message: 'Mobile number is required' }, { type: 'phone', message: 'Enter a valid mobile number' }] },
+        ],
+      },
+    },
+    { id: 'n-bureau-otp',        type: 'otp',         position: { x: 3920, y: 680 }, data: { label: 'Bureau OTP — Verify Mobile', nodeType: 'otp',         channel: 'sms', maxAttempts: 3 } },
+    { id: 'n-bureau-transition',  type: 'api_request', position: { x: 4240, y: 680 }, data: { label: 'Transition: BUREAU_FAILED',  nodeType: 'api_request', method: 'POST', endpoint: '/credit/loan/v1/transition_state', auth: 'bearer' } },
   ],
   edges: [
-    // ── Happy path ─────────────────────────────────────────────────────────
-    { id: 'e1',  source: 'n-start',               target: 'n-get-state' },
-    { id: 'e2',  source: 'n-get-state',            target: 'n-email-form' },
-    { id: 'e3',  source: 'n-email-form',           target: 'n-email-transition-api' },
-    { id: 'e4',  source: 'n-email-transition-api', target: 'n-add-bank-form' },
-    { id: 'e5',  source: 'n-add-bank-form',        target: 'n-add-bank-api' },
-    { id: 'e6',  source: 'n-add-bank-api',         target: 'n-bank-verify-cond' },
-    { id: 'e7',  source: 'n-bank-verify-cond',     target: 'n-confirm-bank-form',   sourceHandle: 'true',  label: 'Verified' },
-    { id: 'e8',  source: 'n-confirm-bank-form',    target: 'n-confirm-bank-api' },
-    { id: 'e9',  source: 'n-confirm-bank-api',     target: 'n-bank-transition-api' },
-    { id: 'e10', source: 'n-bank-transition-api',  target: 'n-digilocker-init-api' },
-    { id: 'e11', source: 'n-digilocker-init-api',  target: 'n-digilocker-form' },
-    { id: 'e12', source: 'n-digilocker-form',      target: 'n-digilocker-confirm' },
-    { id: 'e13', source: 'n-digilocker-confirm',   target: 'n-aadhaar-result-cond' },
-    { id: 'e14', source: 'n-aadhaar-result-cond',  target: 'n-selfie-creds-api',    sourceHandle: 'true',  label: '→ Selfie' },
-    { id: 'e15', source: 'n-selfie-creds-api',     target: 'n-selfie-form' },
-    { id: 'e16', source: 'n-selfie-form',          target: 'n-selfie-confirm-api' },
-    { id: 'e17', source: 'n-selfie-confirm-api',   target: 'n-selfie-result-cond' },
-    { id: 'e18', source: 'n-selfie-result-cond',   target: 'n-enach-init-api',      sourceHandle: 'true',  label: '→ eNach' },
-    { id: 'e19', source: 'n-enach-init-api',       target: 'n-enach-form' },
-    { id: 'e20', source: 'n-enach-form',           target: 'n-enach-wait-api' },
-    { id: 'e21', source: 'n-enach-wait-api',       target: 'n-waiting-enach' },
-    { id: 'e22', source: 'n-waiting-enach',        target: 'n-enach-result-cond' },
-    { id: 'e23', source: 'n-enach-result-cond',    target: 'n-kfs-api',             sourceHandle: 'true',  label: '→ Loan Offer' },
-    { id: 'e24', source: 'n-kfs-api',              target: 'n-offer-screen' },
-    { id: 'e25', source: 'n-offer-screen',         target: 'n-otp-gen-api' },
-    { id: 'e26', source: 'n-otp-gen-api',          target: 'n-otp-sign' },
-    { id: 'e27', source: 'n-otp-sign',             target: 'n-otp-verify-api' },
-    { id: 'e28', source: 'n-otp-verify-api',       target: 'n-agreement-cond' },
-    { id: 'e29', source: 'n-agreement-cond',       target: 'n-agreement-transition', sourceHandle: 'true', label: 'Signed' },
-    { id: 'e30', source: 'n-agreement-transition', target: 'n-activate-api' },
-    { id: 'e31', source: 'n-activate-api',         target: 'n-activation-wait' },
-    { id: 'e32', source: 'n-activation-wait',      target: 'n-credit-live' },
-    // ── Error branches ──────────────────────────────────────────────────────
-    { id: 'e33', source: 'n-bank-verify-cond',    target: 'n-bank-failed',    sourceHandle: 'false', label: 'Failed' },
-    { id: 'e34', source: 'n-aadhaar-result-cond', target: 'n-aadhaar-failed', sourceHandle: 'false', label: 'Aadhaar Failed' },
-    { id: 'e35', source: 'n-selfie-result-cond',  target: 'n-selfie-failed',  sourceHandle: 'false', label: 'Selfie Failed' },
-    { id: 'e36', source: 'n-enach-result-cond',   target: 'n-enach-failed',   sourceHandle: 'false', label: 'ENACH_FAILED' },
-    { id: 'e37', source: 'n-selfie-result-cond',  target: 'n-video-kyc',      sourceHandle: 'false', label: 'Video KYC' },
-    { id: 'e38', source: 'n-agreement-cond',      target: 'n-terminate',      sourceHandle: 'false', label: 'OTP Failed' },
+    // ── Init + full state router chain ───────────────────────────────────
+    { id: 'e1',  source: 'n-start',     target: 'n-get-state' },
+    { id: 'e2',  source: 'n-get-state', target: 'n-state-router' },
+    // Router chain — each false branch falls to the next router
+    { id: 'e-r1-true',  source: 'n-state-router', target: 'n-email-form',        sourceHandle: 'true',  label: 'ADD_EMAIL' },
+    { id: 'e-r1-false', source: 'n-state-router', target: 'n-router-2',          sourceHandle: 'false' },
+    { id: 'e-r2-true',  source: 'n-router-2',     target: 'n-add-bank-form',     sourceHandle: 'true',  label: 'ADD_BANK' },
+    { id: 'e-r2-false', source: 'n-router-2',     target: 'n-router-3',          sourceHandle: 'false' },
+    { id: 'e-r3-true',  source: 'n-router-3',     target: 'n-offer-screen-gromor',sourceHandle: 'true', label: 'OFFER_SCREEN_GROMOR' },
+    { id: 'e-r3-false', source: 'n-router-3',     target: 'n-router-4',          sourceHandle: 'false' },
+    { id: 'e-r4-true',  source: 'n-router-4',     target: 'n-selfie-creds-api',  sourceHandle: 'true',  label: 'SELFIE_INIT' },
+    { id: 'e-r4-false', source: 'n-router-4',     target: 'n-router-5',          sourceHandle: 'false' },
+    { id: 'e-r5-true',  source: 'n-router-5',     target: 'n-enach-init-api',    sourceHandle: 'true',  label: 'ENACH_INITIATION' },
+    { id: 'e-r5-false', source: 'n-router-5',     target: 'n-router-6',          sourceHandle: 'false' },
+    { id: 'e-r6-true',  source: 'n-router-6',     target: 'n-waiting-enach',     sourceHandle: 'true',  label: 'WAITING_ENACH' },
+    { id: 'e-r6-false', source: 'n-router-6',     target: 'n-router-7',          sourceHandle: 'false' },
+    { id: 'e-r7-true',  source: 'n-router-7',     target: 'n-kfs-api',           sourceHandle: 'true',  label: 'SANCTION_LETTER' },
+    { id: 'e-r7-false', source: 'n-router-7',     target: 'n-router-8',          sourceHandle: 'false' },
+    { id: 'e-r8-true',  source: 'n-router-8',     target: 'n-pre-credit-live',   sourceHandle: 'true',  label: 'PRE_CREDIT_LIVE' },
+    { id: 'e-r8-false', source: 'n-router-8',     target: 'n-router-9',          sourceHandle: 'false' },
+    { id: 'e-r9-true',  source: 'n-router-9',     target: 'n-credit-live',       sourceHandle: 'true',  label: 'CREDIT_LIVE' },
+    { id: 'e-r9-false', source: 'n-router-9',     target: 'n-waiting-state',     sourceHandle: 'false', label: 'WAITING / fallback' },
+
+    // ── Step 1: Email ─────────────────────────────────────────────────────
+    { id: 'e5', source: 'n-email-form',           target: 'n-email-transition-api' },
+    { id: 'e6', source: 'n-email-transition-api', target: 'n-add-bank-form' },
+
+    // ── Step 2: Bank Account ──────────────────────────────────────────────
+    { id: 'e7',  source: 'n-add-bank-form', target: 'n-add-bank-api' },
+    { id: 'e8',  source: 'n-add-bank-api',  target: 'n-offer-screen-gromor', label: 'ADD_BANK → next state' },
+    { id: 'e9',  source: 'n-add-bank-api',  target: 'n-bank-failed', label: 'Failed' },
+
+    // ── Step 3: Credit Offer ──────────────────────────────────────────────
+    { id: 'e10', source: 'n-offer-screen-gromor', target: 'n-gromor-transition' },
+    { id: 'e11', source: 'n-gromor-transition',   target: 'n-digilocker-form', label: '→ DigiLocker URL' },
+
+    // ── Step 4: Aadhaar / DigiLocker ─────────────────────────────────────
+    { id: 'e12', source: 'n-digilocker-form',     target: 'n-digilocker-confirm' },
+    { id: 'e13', source: 'n-digilocker-confirm',  target: 'n-aadhaar-result-cond' },
+    { id: 'e14', source: 'n-aadhaar-result-cond', target: 'n-selfie-creds-api',  sourceHandle: 'true',  label: '→ Selfie' },
+    { id: 'e15', source: 'n-aadhaar-result-cond', target: 'n-aadhaar-failed',    sourceHandle: 'false', label: 'AADHAAR_FAILED' },
+    { id: 'e16', source: 'n-aadhaar-result-cond', target: 'n-bureau-pan-form',   label: 'BUREAU_FAILED' },
+
+    // ── AADHAAR_FAILED retry ──────────────────────────────────────────────
+    { id: 'e-aadhaar-retry', source: 'n-aadhaar-failed', target: 'n-gromor-transition', label: 'Retry DigiLocker' },
+
+    // ── Step 5: Selfie ────────────────────────────────────────────────────
+    { id: 'e17', source: 'n-selfie-creds-api',   target: 'n-selfie-form' },
+    { id: 'e18', source: 'n-selfie-form',         target: 'n-selfie-confirm-api' },
+    { id: 'e19', source: 'n-selfie-confirm-api',  target: 'n-selfie-result-cond' },
+    { id: 'e20', source: 'n-selfie-result-cond',  target: 'n-enach-init-api',   sourceHandle: 'true',  label: '→ eNach' },
+    { id: 'e21', source: 'n-selfie-result-cond',  target: 'n-selfie-failed',    sourceHandle: 'false', label: 'SELFIE_FAILED' },
+    { id: 'e22', source: 'n-selfie-result-cond',  target: 'n-video-kyc',        label: 'VIDEO_KYC_PENDING' },
+
+    // ── SELFIE_FAILED retry ───────────────────────────────────────────────
+    { id: 'e-selfie-retry', source: 'n-selfie-failed', target: 'n-selfie-creds-api', label: 'Retry Selfie' },
+
+    // ── Step 6: eNach ────────────────────────────────────────────────────
+    { id: 'e23', source: 'n-enach-init-api',    target: 'n-enach-form' },
+    { id: 'e24', source: 'n-enach-form',         target: 'n-enach-wait-api' },
+    { id: 'e25', source: 'n-enach-wait-api',     target: 'n-waiting-enach' },
+    { id: 'e26', source: 'n-waiting-enach',      target: 'n-enach-result-cond' },
+    { id: 'e27', source: 'n-enach-result-cond',  target: 'n-kfs-api',        sourceHandle: 'true',  label: '→ Sanction Letter' },
+    { id: 'e28', source: 'n-enach-result-cond',  target: 'n-enach-failed',   sourceHandle: 'false', label: 'ENACH_FAILED' },
+
+    // ── ENACH_FAILED retry ────────────────────────────────────────────────
+    { id: 'e-enach-retry', source: 'n-enach-failed', target: 'n-enach-init-api', label: 'Retry eNach' },
+
+    // ── Step 7: Sanction Letter ───────────────────────────────────────────
+    { id: 'e29', source: 'n-kfs-api',      target: 'n-offer-screen' },
+
+    // ── Step 8: OTP Signing sub-workflow ─────────────────────────────────
+    { id: 'e30', source: 'n-offer-screen',          target: 'n-otp-signing-connector', label: 'KFS accepted → sign' },
+    { id: 'e31', source: 'n-otp-signing-connector', target: 'n-pre-credit-live',       label: 'Signed ✓' },
+
+    // ── Step 9: Activation ────────────────────────────────────────────────
+    { id: 'e37', source: 'n-pre-credit-live', target: 'n-credit-live', label: 'CREDIT_LIVE' },
+
+    // ── BUREAU_FAILED recovery ────────────────────────────────────────────
+    { id: 'e-bureau-pan',    source: 'n-bureau-pan-form',  target: 'n-bureau-otp' },
+    { id: 'e-bureau-otp',    source: 'n-bureau-otp',       target: 'n-bureau-transition' },
+    { id: 'e-bureau-resume', source: 'n-bureau-transition',target: 'n-selfie-creds-api', label: 'Resume → Selfie' },
   ],
 })
 
@@ -532,6 +636,81 @@ const stepDefs = new Map<string, StepDefinition>([
     },
   ],
   [
+    'n-waiting-state',
+    {
+      id: 'n-waiting-state',
+      type: 'loading',
+      title: 'Processing Your Application',
+      subtitle: 'We are running a quick check. This usually takes a few seconds.',
+      allowBack: false,
+      copy: { submitLabel: '' },
+      uiConfig: { variant: 'awaiting' },
+      fields: [],
+    },
+  ],
+  [
+    'n-offer-screen-gromor',
+    {
+      id: 'n-offer-screen-gromor',
+      type: 'form',
+      title: 'Congratulations! You\'re Pre-Approved',
+      subtitle: 'Complete your KYC to activate your credit line and get instant access to funds.',
+      allowBack: false,
+      copy: { submitLabel: 'Proceed to KYC' },
+      uiConfig: {
+        variant: 'credit-offer',
+        kfs: {
+          loanAmount:    '₹2,00,000',
+          roi:           '1.5% per month',
+          tenure:        'Up to 12 months',
+          processingFee: 'Nil',
+        },
+      },
+      fields: [],
+    },
+  ],
+  [
+    'n-pre-credit-live',
+    {
+      id: 'n-pre-credit-live',
+      type: 'loading',
+      title: 'Activating Your Credit Line',
+      subtitle: 'Almost there! We are setting up your credit line. This may take a moment.',
+      allowBack: false,
+      copy: { submitLabel: '' },
+      uiConfig: { variant: 'awaiting' },
+      fields: [],
+    },
+  ],
+  [
+    'n-bureau-pan-form',
+    {
+      id: 'n-bureau-pan-form',
+      type: 'form',
+      title: 'Verify Your Identity',
+      subtitle: 'Please enter the mobile number linked to your PAN to continue.',
+      allowBack: false,
+      copy: { submitLabel: 'Send OTP' },
+      uiConfig: {},
+      fields: [
+        { id: 'mobileNumber', type: 'phone', label: 'PAN-Linked Mobile Number', placeholder: '+91 98765 43210', required: true, validation: [{ type: 'required', message: 'Mobile number is required' }, { type: 'phone', message: 'Enter a valid 10-digit mobile number' }] },
+      ],
+    },
+  ],
+  [
+    'n-bureau-otp',
+    {
+      id: 'n-bureau-otp',
+      type: 'otp',
+      title: 'Verify Your Mobile',
+      subtitle: 'Enter the 6-digit OTP sent to your PAN-linked mobile number',
+      allowBack: true,
+      copy: { submitLabel: 'Verify OTP', backLabel: 'Back' },
+      uiConfig: {},
+      fields: [],
+    },
+  ],
+  [
     'n-bank-failed',
     {
       id: 'n-bank-failed',
@@ -622,37 +801,87 @@ const stepDefs = new Map<string, StepDefinition>([
       fields: [],
     },
   ],
+
+  // ── otp-signing-flow step definitions ─────────────────────────────────────
+  [
+    'otp-sf-otp',
+    {
+      id: 'otp-sf-otp',
+      type: 'otp',
+      title: 'Sign Your Loan Agreement',
+      subtitle: 'Enter the OTP sent to your registered mobile to digitally sign the agreement.',
+      allowBack: false,
+      copy: { submitLabel: 'Sign Agreement' },
+      uiConfig: {},
+      fields: [],
+    },
+  ],
+  [
+    'otp-sf-signed',
+    {
+      id: 'otp-sf-signed',
+      type: 'decision',
+      title: 'Agreement Signed!',
+      subtitle: 'Your loan agreement has been digitally signed. Activating your credit line…',
+      allowBack: false,
+      copy: { submitLabel: 'Continue' },
+      uiConfig: { variant: 'approved' },
+      fields: [],
+    },
+  ],
+  [
+    'otp-sf-failed',
+    {
+      id: 'otp-sf-failed',
+      type: 'decision',
+      title: 'OTP Verification Failed',
+      subtitle: 'OTP attempts exhausted. Please contact support to complete your application.',
+      allowBack: false,
+      copy: { submitLabel: 'Done' },
+      uiConfig: { variant: 'rejected' },
+      fields: [],
+    },
+  ],
 ])
 
 // Linear happy-path transitions for the runtime demo flow.
 const NEXT_STEP: Record<string, string> = {
   'step-kyc': 'step-otp',
   'step-otp': 'step-approved',
-  // PICE LOS fallback — happy path only (used before builder compiles the graph)
-  'n-email-form':        'n-add-bank-form',
-  'n-add-bank-form':     'n-confirm-bank-form',
-  'n-confirm-bank-form': 'n-digilocker-form',
-  'n-digilocker-form':   'n-selfie-form',
-  'n-selfie-form':       'n-enach-form',
-  'n-enach-form':        'n-offer-screen',
-  'n-offer-screen':      'n-otp-sign',
-  'n-otp-sign':          'n-credit-live',
+  // PICE LOS — happy path (UI steps only; API nodes are walked server-side)
+  'n-email-form':           'n-add-bank-form',
+  'n-add-bank-form':        'n-offer-screen-gromor',
+  'n-offer-screen-gromor':  'n-digilocker-form',
+  'n-digilocker-form':      'n-selfie-form',
+  'n-selfie-form':          'n-enach-form',
+  'n-enach-form':           'n-offer-screen',
+  'n-offer-screen':         'n-otp-signing-connector',  // → sub-flow
+  'n-otp-signing-connector':'n-pre-credit-live',         // parent resumes after sub-flow
+  'n-pre-credit-live':      'n-credit-live',
+  // bureau recovery
+  'n-bureau-pan-form':      'n-bureau-otp',
+  'n-bureau-otp':           'n-selfie-form',
+  // OTP signing sub-flow (otp-signing-flow)
+  'otp-sf-otp':             'otp-sf-signed',
 }
 const PREV_STEP: Record<string, string> = {
-  'step-otp':            'step-kyc',
-  'n-add-bank-form':     'n-email-form',
-  'n-confirm-bank-form': 'n-add-bank-form',
-  'n-digilocker-form':   'n-confirm-bank-form',
-  'n-selfie-form':       'n-digilocker-form',
-  'n-enach-form':        'n-selfie-form',
-  'n-offer-screen':      'n-enach-form',
-  'n-otp-sign':          'n-offer-screen',
+  'step-otp':               'step-kyc',
+  'n-add-bank-form':        'n-email-form',
+  'n-offer-screen-gromor':  'n-add-bank-form',
+  'n-digilocker-form':      'n-offer-screen-gromor',
+  'n-selfie-form':          'n-digilocker-form',
+  'n-enach-form':           'n-selfie-form',
+  'n-offer-screen':         'n-enach-form',
+  'n-otp-signing-connector':'n-offer-screen',
+  'n-bureau-otp':           'n-bureau-pan-form',
 }
 const TERMINAL_STEPS = new Set([
   'step-approved', 'step-rejected',
   'n-credit-live',
   'n-bank-failed', 'n-aadhaar-failed', 'n-selfie-failed', 'n-enach-failed',
-  'n-bureau-failed', 'n-video-kyc', 'n-terminate',
+  'n-video-kyc', 'n-terminate',
+  // sub-flow terminals
+  'otp-sf-signed', 'otp-sf-failed',
 ])
 
 // ─── Runtime session store ─────────────────────────────────────────────────────
@@ -663,6 +892,7 @@ interface SessionRecord {
   tenantId: string
   currentStepId: string
   context: Record<string, unknown>
+  lastResponse: Record<string, unknown>
 }
 const sessions = new Map<string, SessionRecord>()
 
@@ -743,18 +973,23 @@ export const handlers = [
   // ===== SDK runtime: sessions + steps =====
 
   http.post(`${BASE}/sessions/bootstrap`, async ({ request }) => {
-    const body = (await request.json().catch(() => ({}))) as { flowId?: string }
+    const body = (await request.json().catch(() => ({}))) as {
+      flowId?: string
+      initialData?: Record<string, unknown>
+    }
     const flowId = body.flowId ?? 'demo-flow'
     const sessionId = uid('sess')
-    // Prefer the compiled builder graph; fall back to the canned demo step.
     const compiled = getRuntimeFlow(flowId)
     const firstStepId = compiled?.order[0] ?? 'step-kyc'
+    // Seed __init from initialData so {{init.*}} variables work in templates
+    const initContext = body.initialData ? { __init: body.initialData } : {}
     const record: SessionRecord = {
       sessionId,
       flowId,
       tenantId: 'mock-tenant',
       currentStepId: firstStepId,
-      context: {},
+      context: initContext,
+      lastResponse: {},
     }
     sessions.set(sessionId, record)
     const session: FlowSession = {
@@ -762,10 +997,19 @@ export const handlers = [
       flowId,
       tenantId: record.tenantId,
       currentStepId: record.currentStepId,
-      context: {},
+      context: record.context,
       startedAt: now(),
     }
     return HttpResponse.json(session)
+  }),
+
+  // Polling — called by FlowEngine on loading/task steps
+  http.get(`${BASE}/sessions/poll`, ({ request }) => {
+    const url = new URL(request.url)
+    const sessionId = url.searchParams.get('sessionId') ?? ''
+    const session = sessions.get(sessionId)
+    if (!session) return HttpResponse.json({ message: 'Session not found' }, { status: 404 })
+    return HttpResponse.json({ currentStepId: session.currentStepId })
   }),
 
   http.get(`${BASE}/steps/:stepId`, ({ params }) => {
@@ -808,7 +1052,10 @@ export const handlers = [
     }
 
     if (nextStepId) {
-      if (session) session.currentStepId = nextStepId
+      if (session) {
+        session.currentStepId = nextStepId
+        session.lastResponse = { nextStepId, nextState: nextStepId }
+      }
       return HttpResponse.json({ nextStepId })
     }
 

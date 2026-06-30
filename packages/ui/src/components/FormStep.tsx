@@ -369,14 +369,114 @@ function LoanOfferFormStep({ step, isSubmitting, onSubmit }: FormStepProps) {
   )
 }
 
+// ─── Resolve {{token}} values — shows a blue badge in preview; real value at runtime ──
+function resolveVal(val: string): { text: string; isToken: boolean } {
+  const m = val.trim().match(/^\{\{(.+)\}\}$/)
+  return m ? { text: m[1] ?? val, isToken: true } : { text: val, isToken: false }
+}
+
+function KFSValue({ val }: { val: string }) {
+  const { text, isToken } = resolveVal(val)
+  if (isToken) {
+    return (
+      <span style={{
+        fontSize: '11px', fontStyle: 'italic', fontWeight: 600,
+        color: '#2563eb', background: '#eff6ff', borderRadius: '4px',
+        padding: '1px 6px',
+      }}>
+        {text} from API
+      </span>
+    )
+  }
+  return <span style={{ fontSize: '12px', fontWeight: 600, color: '#111827' }}>{val}</span>
+}
+
+// ─── Credit Offer / OFFER_SCREEN_GROMOR ──────────────────────────────────────
+function CreditOfferFormStep({ step, isSubmitting, onSubmit }: FormStepProps) {
+  const ui = step.uiConfig as Record<string, unknown>
+  const vals = (ui.kfs ?? {}) as Record<string, string>
+
+  const loanAmountResolved = resolveVal(vals.loanAmount ?? '₹2,00,000')
+
+  const rows = [
+    { label: 'Interest Rate',  value: vals.roi            ?? '1.5% per month'   },
+    { label: 'Tenure',         value: vals.tenure         ?? 'Up to 12 months'  },
+    { label: 'Processing Fee', value: vals.processingFee  ?? 'Nil'              },
+    // Any additional keys from the kfs object (beyond the 3 above) are rendered too
+    ...Object.entries(vals)
+      .filter(([k]) => !['loanAmount', 'roi', 'tenure', 'processingFee'].includes(k))
+      .map(([k, v]) => ({ label: k, value: v })),
+  ]
+
+  return (
+    <>
+      {/* Approved badge */}
+      <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: '6px',
+          background: '#dcfce7', borderRadius: '100px', padding: '5px 14px', marginBottom: '16px',
+        }}>
+          <svg width="12" height="10" viewBox="0 0 12 10" fill="none">
+            <path d="M1 5L4.5 8.5L11 1" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span style={{ color: '#15803d', fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em' }}>PRE-APPROVED</span>
+        </div>
+
+        {/* Loan amount — big */}
+        {loanAmountResolved.isToken ? (
+          <div style={{ marginBottom: '20px' }}>
+            <span style={{
+              display: 'inline-block', fontSize: '13px', fontStyle: 'italic', fontWeight: 700,
+              color: '#2563eb', background: '#eff6ff', borderRadius: '6px', padding: '4px 10px',
+            }}>
+              {loanAmountResolved.text} from API
+            </span>
+          </div>
+        ) : (
+          <p style={{ fontSize: '38px', fontWeight: 800, color: '#111827', margin: '0 0 4px', lineHeight: 1 }}>
+            {vals.loanAmount ?? '₹2,00,000'}
+          </p>
+        )}
+        <p style={{ fontSize: '12px', color: '#6b7280', margin: '0 0 20px' }}>
+          Credit limit available to you
+        </p>
+      </div>
+
+      {/* Offer details card */}
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: '12px', overflow: 'hidden', marginBottom: '16px' }}>
+        {rows.map(({ label, value }, i) => (
+          <div key={label} style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '10px 14px',
+            background: i % 2 === 0 ? '#fff' : '#f9fafb',
+            borderTop: i > 0 ? '1px solid #f3f4f6' : undefined,
+          }}>
+            <span style={{ fontSize: '12px', color: '#6b7280' }}>{label}</span>
+            <KFSValue val={value} />
+          </div>
+        ))}
+      </div>
+
+      <p style={{ fontSize: '10px', color: '#9ca3af', marginBottom: '12px', textAlign: 'center', lineHeight: 1.5 }}>
+        Final terms subject to KYC verification. No commitment until you sign.
+      </p>
+
+      <button className="pf-btn" onClick={() => onSubmit({ offerViewed: 'true' })} disabled={isSubmitting}>
+        {isSubmitting ? 'Processing…' : step.copy.submitLabel}
+      </button>
+    </>
+  )
+}
+
 // ─── Generic form step ────────────────────────────────────────────────────────
 export function FormStep({ step, isSubmitting, onSubmit }: FormStepProps) {
   // Special KYC variants
   const variant = (step.uiConfig as Record<string, string>).variant
-  if (variant === 'selfie')      return <SelfieFormStep step={step} isSubmitting={isSubmitting} onSubmit={onSubmit} />
-  if (variant === 'digilocker')  return <DigiLockerFormStep step={step} isSubmitting={isSubmitting} onSubmit={onSubmit} />
-  if (variant === 'enach')       return <EnachFormStep step={step} isSubmitting={isSubmitting} onSubmit={onSubmit} />
-  if (variant === 'loan-offer')  return <LoanOfferFormStep step={step} isSubmitting={isSubmitting} onSubmit={onSubmit} />
+  if (variant === 'credit-offer') return <CreditOfferFormStep step={step} isSubmitting={isSubmitting} onSubmit={onSubmit} />
+  if (variant === 'selfie')       return <SelfieFormStep step={step} isSubmitting={isSubmitting} onSubmit={onSubmit} />
+  if (variant === 'digilocker')   return <DigiLockerFormStep step={step} isSubmitting={isSubmitting} onSubmit={onSubmit} />
+  if (variant === 'enach')        return <EnachFormStep step={step} isSubmitting={isSubmitting} onSubmit={onSubmit} />
+  if (variant === 'loan-offer')   return <LoanOfferFormStep step={step} isSubmitting={isSubmitting} onSubmit={onSubmit} />
 
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(step.fields.map((f) => [f.id, f.type === 'checkbox' ? 'false' : '']))

@@ -1,6 +1,7 @@
 interface ApiClientConfig {
   baseUrl: string
   token: string
+  onRefreshToken?: () => Promise<string>
 }
 
 interface RequestOptions {
@@ -8,27 +9,38 @@ interface RequestOptions {
   body?: unknown
 }
 
-export function createApiClient({ baseUrl, token }: ApiClientConfig) {
-  async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    const { method = 'GET', body } = options
+export function createApiClient(config: ApiClientConfig) {
+  const { baseUrl } = config
+  let token = config.token
 
+  async function attemptFetch(path: string, options: RequestOptions, currentToken: string): Promise<Response> {
     const init: RequestInit = {
-      method,
+      method: options.method ?? 'GET',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${currentToken}`,
       },
     }
-    // Only set body when present — exactOptionalPropertyTypes forbids
-    // assigning `undefined` to RequestInit.body (BodyInit | null).
-    if (body !== undefined) init.body = JSON.stringify(body)
+    if (options.body !== undefined) init.body = JSON.stringify(options.body)
+    return fetch(`${baseUrl}${path}`, init)
+  }
 
-    const res = await fetch(`${baseUrl}${path}`, init)
+  async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    let res = await attemptFetch(path, options, token)
+
+    // 401: try token refresh once
+    if (res.status === 401 && config.onRefreshToken) {
+      try {
+        token = await config.onRefreshToken()
+        res = await attemptFetch(path, options, token)
+      } catch {
+        // refresh failed — fall through to error handling
+      }
+    }
 
     if (!res.ok) {
       const error = await res.json().catch(() => ({ message: res.statusText }))
       const err = new Error(error.message ?? `HTTP ${res.status}`)
-      // Attach status for retryable check
       ;(err as Error & { status: number }).status = res.status
       throw err
     }

@@ -20,115 +20,149 @@ export interface RuntimeFlow {
 /** Turn one graph node into a runtime step (or null for non-UI nodes). */
 function buildStep(node: CompileNode, index: number): StepDefinition | null {
   const d = node.data
-  const allowBack = index > 0
+  // allowBack: use explicit node setting if set, otherwise fall back to position heuristic
+  const allowBack = d.allowBack ?? (index > 0)
 
   switch (d.nodeType) {
     case 'web_form':
-    case 'form': // backward compat
+    case 'form':
       return {
         id: node.id,
         type: 'form',
         title: d.stepTitle || d.label || 'Form',
+        subtitle: d.subtitle || '',
         allowBack,
-        copy: { submitLabel: 'Continue', backLabel: 'Back' },
+        copy: { submitLabel: d.submitLabel || 'Continue', backLabel: d.backLabel || 'Back' },
         uiConfig: {},
         fields: d.fields ?? [],
       }
-    case 'layout':
+    case 'layout': {
+      // Parse preview values from requestBody JSON
+      let kfs: Record<string, string> | undefined
+      try { if (d.requestBody) kfs = JSON.parse(d.requestBody) } catch { /* ignore */ }
+
+      // Explicit variant wins; fall back to heuristic on title/label
+      const resolvedVariant = d.variant && d.variant !== 'auto'
+        ? d.variant
+        : /offer|approv|credit/i.test(d.stepTitle ?? d.label ?? '') ? 'credit-offer' : 'approved'
+
+      const isOffer = resolvedVariant === 'credit-offer'
       return {
         id: node.id,
-        type: 'decision',
-        title: d.label || 'Layout',
-        subtitle: '',
+        type: isOffer ? 'form' : 'decision',
+        title: d.stepTitle || d.label || 'Layout',
+        subtitle: d.subtitle || '',
         allowBack: false,
-        copy: { submitLabel: 'Continue' },
-        uiConfig: {},
+        copy: { submitLabel: d.submitLabel || 'Continue' },
+        uiConfig: isOffer ? { variant: 'credit-offer', ...(kfs ? { kfs } : {}) } : { variant: resolvedVariant },
         fields: [],
       }
+    }
     case 'document':
       return {
         id: node.id,
         type: 'form',
         title: d.label || 'Upload document',
+        subtitle: d.subtitle || '',
         allowBack,
-        copy: { submitLabel: 'Continue', backLabel: 'Back' },
+        copy: { submitLabel: d.submitLabel || 'Continue', backLabel: d.backLabel || 'Back' },
         uiConfig: {},
-        fields:
-          d.fields ?? [
-            {
-              id: 'document',
-              type: 'file',
-              label: 'Upload document',
-              required: true,
-              validation: [{ type: 'required', message: 'Please upload a document' }],
-            },
-          ],
+        fields: d.fields ?? [
+          {
+            id: 'document',
+            type: 'file',
+            label: 'Upload document',
+            required: true,
+            validation: [{ type: 'required', message: 'Please upload a document' }],
+          },
+        ],
       }
     case 'otp':
       return {
         id: node.id,
         type: 'otp',
-        title: 'Verify your mobile number',
-        subtitle: 'Enter the 6-digit code we sent you',
+        title: d.label || 'Verify your mobile number',
+        subtitle: d.subtitle || 'Enter the 6-digit code we sent you',
         allowBack,
-        copy: { submitLabel: 'Verify OTP', backLabel: 'Back' },
+        copy: { submitLabel: d.submitLabel || 'Verify OTP', backLabel: d.backLabel || 'Back' },
         uiConfig: {},
         fields: [],
       }
     case 'end': {
-      const rejected = /reject|deni|declin|fail/i.test(d.label ?? '')
+      // Explicit variant wins; fall back to label heuristic
+      const endVariant = d.variant ?? (/reject|deni|declin|fail/i.test(d.label ?? '') ? 'rejected' : 'approved')
       const isPlainEnd = !d.label || d.label.toLowerCase() === 'end'
+      const autoTitle = endVariant === 'rejected' ? 'Application not approved' : 'You are approved'
+      const autoSubtitle = endVariant === 'rejected'
+        ? 'Unfortunately we could not approve your application.'
+        : 'Your application has been approved.'
       return {
         id: node.id,
         type: 'decision',
-        title: isPlainEnd
-          ? rejected
-            ? 'Application not approved'
-            : 'You are approved'
-          : d.label,
-        subtitle: rejected
-          ? 'Unfortunately we could not approve your application.'
-          : 'Your application has been approved.',
+        title: isPlainEnd ? autoTitle : d.label,
+        subtitle: d.subtitle || autoSubtitle,
         allowBack: false,
-        copy: { submitLabel: 'Done' },
-        uiConfig: { variant: rejected ? 'rejected' : 'approved' },
+        copy: { submitLabel: d.submitLabel || 'Done' },
+        uiConfig: { variant: endVariant },
         fields: [],
       }
     }
     case 'webhook': {
-      // External SDK / redirect node — auto-detect provider from label for preview variant
-      const lbl = (d.label ?? '').toLowerCase()
-      const variant = lbl.includes('digi') ? 'digilocker'
-        : lbl.includes('hyper') || lbl.includes('selfie') || lbl.includes('face') ? 'selfie'
-        : lbl.includes('nach') || lbl.includes('enach') ? 'enach'
-        : 'external'
+      // Explicit variant wins; fall back to label keyword detection
+      let webhookVariant: string
+      if (d.variant && d.variant !== 'auto') {
+        webhookVariant = d.variant
+      } else {
+        const lbl = (d.label ?? '').toLowerCase()
+        webhookVariant = lbl.includes('digi') ? 'digilocker'
+          : lbl.includes('hyper') || lbl.includes('selfie') || lbl.includes('face') ? 'selfie'
+          : lbl.includes('nach') || lbl.includes('enach') ? 'enach'
+          : 'external'
+      }
       return {
         id: node.id,
         type: 'form',
         title: d.label || 'External SDK',
+        subtitle: d.subtitle || '',
         allowBack: false,
-        copy: { submitLabel: 'Continue' },
-        uiConfig: { variant },
+        copy: { submitLabel: d.submitLabel || 'Continue' },
+        uiConfig: { variant: webhookVariant },
         fields: [],
       }
     }
     case 'task':
-    case 'wait': // backward compat
+    case 'wait':
       return {
         id: node.id,
-        type: 'decision',
+        type: 'loading',
         title: d.label || 'Awaiting Approval',
-        subtitle: `Assigned to ${d.assignedRole ?? 'credit officer'} — SLA ${d.dueHours ?? 24}h`,
+        subtitle: d.subtitle || `Assigned to ${d.assignedRole ?? 'credit officer'} — SLA ${d.dueHours ?? 24}h`,
         allowBack: false,
-        copy: { submitLabel: 'Continue' },
-        uiConfig: { variant: 'awaiting' },
+        copy: { submitLabel: '' },
+        uiConfig: {
+          variant: 'awaiting',
+          pollingInterval: d.pollingIntervalSeconds ?? 3,
+          pollingTimeout: d.pollingTimeoutSeconds ?? 120,
+        },
         fields: [],
       }
     case 'flow_connector':
-    case 'connector': // backward compat
-      return null  // transparent sub-flow — no UI step
+    case 'connector':
+      return {
+        id: node.id,
+        type: 'sub-flow',
+        title: d.label || 'Sub-flow',
+        subtitle: d.subtitle || '',
+        allowBack: false,
+        copy: { submitLabel: '' },
+        uiConfig: {
+          childFlowId: d.flowId ?? '',
+          inputMap: d.inputMap ?? '',
+          outputMap: d.outputMap ?? '',
+        },
+        fields: [],
+      }
     default:
-      // start, api_request, api, edge_operation, condition, policy_engine, policy → no rendered step (walked through server-side)
       return null
   }
 }
@@ -213,4 +247,72 @@ export function getRuntimeStep(stepId: string): StepDefinition | undefined {
 /** Compile a single node to a StepDefinition for instant step preview (no session needed). */
 export function compileSingleNode(node: { id: string; data: WorkflowNodeData }): StepDefinition | null {
   return buildStep(node, 1)
+}
+
+// ─── Variable introspection ───────────────────────────────────────────────────
+
+export interface VariableGroup {
+  token: string   // e.g. "{{context.n-email-form.email}}"
+  label: string   // human-readable label
+  hint: string    // which step/source it comes from
+  namespace: 'init' | 'context' | 'session' | 'response'
+}
+
+/**
+ * Returns all {{variables}} available at the point in the graph where
+ * targetNodeId is reached — i.e. only form fields from preceding steps.
+ * Also includes universal variables (session, response).
+ */
+export function getAvailableVariables(
+  nodes: CompileNode[],
+  edges: CompileEdge[],
+  targetNodeId: string
+): VariableGroup[] {
+  const result: VariableGroup[] = []
+
+  // Walk the happy path up to (but not including) targetNodeId
+  const flow = compileFlow(nodes, edges)
+  if (flow) {
+    const targetIdx = flow.order.indexOf(targetNodeId)
+    const priorStepIds = targetIdx >= 0 ? flow.order.slice(0, targetIdx) : flow.order
+
+    for (const stepId of priorStepIds) {
+      const step = flow.steps[stepId]
+      if (!step || step.type !== 'form') continue
+      for (const field of step.fields) {
+        result.push({
+          token: `{{context.${stepId}.${field.id}}}`,
+          label: field.label,
+          hint: `From "${step.title}" (${stepId})`,
+          namespace: 'context',
+        })
+      }
+    }
+  }
+
+  // Universal session variables
+  result.push(
+    { token: '{{session.sessionId}}', label: 'Session ID',  hint: 'Current session identifier',  namespace: 'session' },
+    { token: '{{session.flowId}}',    label: 'Flow ID',     hint: 'Current flow identifier',      namespace: 'session' },
+    { token: '{{session.tenantId}}',  label: 'Tenant ID',   hint: 'Tenant identifier',            namespace: 'session' },
+  )
+
+  // Common response variables
+  result.push(
+    { token: '{{response.nextState}}',    label: 'Next state',    hint: 'State returned by last transition', namespace: 'response' },
+    { token: '{{response.currentState}}', label: 'Current state', hint: 'State from getCurrentState()',      namespace: 'response' },
+    { token: '{{response.graphId}}',      label: 'Graph ID',      hint: 'State machine graph identifier',    namespace: 'response' },
+    { token: '{{response.version}}',      label: 'Version',       hint: 'State machine version',             namespace: 'response' },
+  )
+
+  // initialData variables (user-defined — show placeholder)
+  result.push(
+    { token: '{{init.userId}}',   label: 'User ID',      hint: 'From initialData passed at SDK init', namespace: 'init' },
+    { token: '{{init.mobile}}',   label: 'Mobile',       hint: 'From initialData passed at SDK init', namespace: 'init' },
+    { token: '{{init.pan}}',      label: 'PAN',          hint: 'From initialData passed at SDK init', namespace: 'init' },
+    { token: '{{init.email}}',    label: 'Email',        hint: 'From initialData passed at SDK init', namespace: 'init' },
+    { token: '{{init.flowToken}}',label: 'Flow Token',   hint: 'From initialData passed at SDK init', namespace: 'init' },
+  )
+
+  return result
 }
