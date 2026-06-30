@@ -348,7 +348,8 @@ workflows.set('pice-los-journey', {
     { id: 'n-selfie-failed',  type: 'end', position: { x: 6400,  y: 720 }, data: { label: 'SELFIE_VERIFICATION_FAILED',        nodeType: 'end' } },
     { id: 'n-enach-failed',   type: 'end', position: { x: 8400,  y: 720 }, data: { label: 'ENACH_FAILED — Retry',              nodeType: 'end' } },
     { id: 'n-video-kyc',      type: 'end', position: { x: 6400,  y: 1000 }, data: { label: 'VIDEO_KYC_PENDING',                nodeType: 'end' } },
-    { id: 'n-terminate',      type: 'end', position: { x: 9600,  y: 720 }, data: { label: 'TERMINATION — Application Rejected',nodeType: 'end' } },
+    // n-terminate was removed when OTP signing moved into the otp-signing-flow sub-flow,
+    // which has its own otp-sf-failed terminal.
 
     // ── BUREAU_FAILED recovery flow (y = 1000, below error row) ──────────
     {
@@ -887,7 +888,7 @@ const TERMINAL_STEPS = new Set([
   'step-approved', 'step-rejected',
   'n-credit-live',
   'n-bank-failed', 'n-aadhaar-failed', 'n-selfie-failed', 'n-enach-failed',
-  'n-video-kyc', 'n-terminate',
+  'n-video-kyc',
   // sub-flow terminals
   'otp-sf-signed', 'otp-sf-failed',
 ])

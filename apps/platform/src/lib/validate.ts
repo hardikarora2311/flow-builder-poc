@@ -86,26 +86,44 @@ export function validateWorkflow({ nodes, edges, knownFlowIds, currentFlowId }: 
       })
     }
 
-    // End with outgoing
+    // End with outgoing — allowed only if ALL outgoing edges are explicit retry/continue paths
+    // (a common pattern for failure states like AADHAAR_FAILED that offer a recovery action).
     if (d.nodeType === 'end' && outEdges.length > 0) {
-      issues.push({
-        id: `end-has-out-${node.id}`,
-        severity: 'error',
-        kind: 'wiring',
-        message: `End node "${d.label || node.id}" has outgoing edges — should be terminal.`,
-        nodeId: node.id,
+      const allRetryLabeled = outEdges.every((e) => {
+        const lbl = typeof e.label === 'string' ? e.label : ''
+        return /retry|continue|resume|back/i.test(lbl)
       })
+      if (!allRetryLabeled) {
+        issues.push({
+          id: `end-has-out-${node.id}`,
+          severity: 'error',
+          kind: 'wiring',
+          message: `End node "${d.label || node.id}" has outgoing edges — should be terminal. (Tip: label the edge "Retry…" if it's a recovery path.)`,
+          nodeId: node.id,
+        })
+      }
     }
 
-    // Non-end, non-router with no outgoing (excluding nodes that fan into errors)
+    // Non-end nodes with no outgoing edge — but allow:
+    //  - polling tasks (SDK advances them via /sessions/poll, not via a graph edge).
+    //    Task nodes default to polling=3s in flow-compiler when the field is unset,
+    //    so we mirror that default here. A polling=0 task is the explicit opt-out.
+    //  - flow_connector (next step decided by parent flow after child completes).
     if (d.nodeType !== 'end' && d.nodeType !== 'start' && outEdges.length === 0) {
-      issues.push({
-        id: `dead-end-${node.id}`,
-        severity: 'error',
-        kind: 'wiring',
-        message: `"${d.label || node.id}" has no outgoing edge — flow stalls here.`,
-        nodeId: node.id,
-      })
+      const isPollingTask =
+        (d.nodeType === 'task' || d.nodeType === 'wait') &&
+        (d.pollingIntervalSeconds ?? 3) > 0
+      const isSubFlow = d.nodeType === 'flow_connector' || d.nodeType === 'connector'
+
+      if (!isPollingTask && !isSubFlow) {
+        issues.push({
+          id: `dead-end-${node.id}`,
+          severity: 'error',
+          kind: 'wiring',
+          message: `"${d.label || node.id}" has no outgoing edge — flow stalls here.`,
+          nodeId: node.id,
+        })
+      }
     }
 
     // edge_operation needs both true and false branches
