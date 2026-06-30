@@ -44,17 +44,23 @@ function buildStep(node: CompileNode, index: number): StepDefinition | null {
       // Explicit variant wins; fall back to heuristic on title/label
       const resolvedVariant = d.variant && d.variant !== 'auto'
         ? d.variant
-        : /offer|approv|credit/i.test(d.stepTitle ?? d.label ?? '') ? 'credit-offer' : 'approved'
+        : /sanction|kfs|key fact/i.test(d.stepTitle ?? d.label ?? '') ? 'loan-offer'
+        : /offer|approv|credit/i.test(d.stepTitle ?? d.label ?? '') ? 'credit-offer'
+        : 'approved'
 
-      const isOffer = resolvedVariant === 'credit-offer'
+      // Form variants render an interactive screen with the kfs data + accept button.
+      // Other variants render a simple decision/info screen.
+      const isInteractiveOffer = resolvedVariant === 'credit-offer' || resolvedVariant === 'loan-offer'
       return {
         id: node.id,
-        type: isOffer ? 'form' : 'decision',
+        type: isInteractiveOffer ? 'form' : 'decision',
         title: d.stepTitle || d.label || 'Layout',
         subtitle: d.subtitle || '',
         allowBack: false,
         copy: { submitLabel: d.submitLabel || 'Continue' },
-        uiConfig: isOffer ? { variant: 'credit-offer', ...(kfs ? { kfs } : {}) } : { variant: resolvedVariant },
+        uiConfig: isInteractiveOffer
+          ? { variant: resolvedVariant, ...(kfs ? { kfs } : {}) }
+          : { variant: resolvedVariant },
         fields: [],
       }
     }

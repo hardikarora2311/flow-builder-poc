@@ -400,11 +400,16 @@ function ConfigTab({
             <Select
               value={data.variant ?? 'credit-offer'}
               options={[
-                { value: 'credit-offer', label: 'Credit Offer (pre-approval with values)' },
+                { value: 'credit-offer', label: 'Credit Offer (pre-approval card with limit + ROI)' },
+                { value: 'loan-offer',   label: 'Sanction Letter / KFS (full KFS table + accept)' },
                 { value: 'approved',     label: 'Approved (simple congrats screen)' },
+                { value: 'rejected',     label: 'Rejected (failure screen)' },
               ]}
               onChange={(v) => patch({ variant: v })}
             />
+            <p className="mt-1.5 text-[10px] text-slate-400">
+              Determines which display style this screen uses. <strong>Credit Offer</strong> shows the pre-approval card; <strong>KFS</strong> shows the full Key Fact Statement table.
+            </p>
           </Field>
           <Field label="Heading">
             <Input
@@ -427,11 +432,12 @@ function ConfigTab({
               placeholder="e.g. Proceed to KYC"
             />
           </Field>
-          {(data.variant === 'credit-offer' || !data.variant) && (
+          {(data.variant === 'credit-offer' || data.variant === 'loan-offer' || !data.variant) && (
             <Field label="Preview values">
               <LayoutValuesEditor
                 value={data.requestBody ?? ''}
                 onChange={(v) => patch({ requestBody: v })}
+                variant={data.variant ?? 'credit-offer'}
               />
             </Field>
           )}
@@ -543,7 +549,11 @@ function CopySection({
 }
 
 // ─── Layout values editor with API token picker ───────────────────────────────
-function LayoutValuesEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function LayoutValuesEditor({ value, onChange, variant = 'credit-offer' }: {
+  value: string
+  onChange: (v: string) => void
+  variant?: string
+}) {
   type Row = { key: string; val: string }
   const lastFocusedValRef = useRef<{ index: number; el: HTMLInputElement | null }>({ index: -1, el: null })
 
@@ -557,7 +567,16 @@ function LayoutValuesEditor({ value, onChange }: { value: string; onChange: (v: 
     }
   }
 
-  const defaultRows = (): Row[] => [
+  const defaultRows = (): Row[] => variant === 'loan-offer' ? [
+    { key: 'principalAmount', val: '₹1,00,000' },
+    { key: 'disbursedAmount', val: '₹98,500' },
+    { key: 'tenure',          val: '24 months' },
+    { key: 'emiAmount',       val: '₹5,166 / month' },
+    { key: 'interestRate',    val: '24% p.a. (APR)' },
+    { key: 'totalInterest',   val: '₹23,984' },
+    { key: 'processingFee',   val: '₹1,500 (incl. GST)' },
+    { key: 'totalRepayable',  val: '₹1,23,984' },
+  ] : [
     { key: 'loanAmount',    val: '₹2,00,000' },
     { key: 'roi',           val: '1.5% per month' },
     { key: 'tenure',        val: 'Up to 12 months' },
