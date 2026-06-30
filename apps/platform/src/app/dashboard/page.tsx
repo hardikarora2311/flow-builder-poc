@@ -31,6 +31,10 @@ export default function DashboardPage() {
             <span className="font-semibold text-slate-900">Workflow Platform</span>
           </div>
           <div className="flex items-center gap-3 text-sm">
+            <Link href="/components" className="text-blue-600 hover:text-blue-700 font-medium">
+              Component library →
+            </Link>
+            <span className="h-4 w-px bg-slate-200" />
             <span className="text-slate-500">{user.email}</span>
             <button onClick={signOut} className="text-slate-600 hover:text-slate-900">
               Sign out

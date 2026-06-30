@@ -21,7 +21,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@platform/core": "*"
+    "@platform/core": "*",
+    "lucide-react": "^0.460.0"
   },
   "devDependencies": {
     "@platform/tsconfig": "*",

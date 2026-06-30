@@ -1,71 +1,205 @@
-/* All @platform/ui component styles live here.
-   Every value uses CSS custom properties.
-   No hardcoded colours, fonts, or spacing. */
+/* ───────────────────────────────────────────────────────────────────────────
+   @platform/ui — design token system
+   All visual properties consume CSS custom properties (the --pf-* family)
+   so lenders can rebrand the entire SDK by overriding tokens.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Token defaults (applied to :root and any element with a scoped theme) ── */
+:root,
+[data-pf-theme] {
+  /* Colors */
+  --pf-color-primary:        #2563EB;
+  --pf-color-primary-hover:  #1D4ED8;
+  --pf-color-primary-text:   #FFFFFF;
+  --pf-color-secondary:      #64748B;
+  --pf-color-background:     #FFFFFF;
+  --pf-color-surface:        #F8FAFC;
+  --pf-color-surface-2:      #F1F5F9;
+  --pf-color-text:           #111827;
+  --pf-color-text-muted:     #6B7280;
+  --pf-color-text-subtle:    #9CA3AF;
+  --pf-color-border:         #E2E8F0;
+  --pf-color-border-strong:  #CBD5E1;
+  --pf-color-error:          #DC2626;
+  --pf-color-error-surface:  #FEF2F2;
+  --pf-color-success:        #16A34A;
+  --pf-color-success-surface:#F0FDF4;
+  --pf-color-warning:        #D97706;
+  --pf-color-warning-surface:#FFFBEB;
+  --pf-color-info:           #2563EB;
+  --pf-color-info-surface:   #EFF6FF;
+
+  /* Typography */
+  --pf-font-family:          system-ui, -apple-system, sans-serif;
+  --pf-font-family-mono:     ui-monospace, SFMono-Regular, Menlo, monospace;
+  --pf-font-size-xs:         11px;
+  --pf-font-size-sm:         13px;
+  --pf-font-size-base:       15px;
+  --pf-font-size-lg:         18px;
+  --pf-font-size-xl:         22px;
+  --pf-font-size-display:    28px;
+  --pf-font-weight-regular:  400;
+  --pf-font-weight-medium:   500;
+  --pf-font-weight-bold:     700;
+  --pf-font-weight-heading:  600;
+  --pf-line-height-tight:    1.2;
+  --pf-line-height-base:     1.5;
+  --pf-line-height-relaxed:  1.7;
+
+  /* Spacing (t-shirt scale) */
+  --pf-space-xs:             4px;
+  --pf-space-sm:             8px;
+  --pf-space-md:             12px;
+  --pf-space-lg:             16px;
+  --pf-space-xl:             24px;
+  --pf-space-2xl:            32px;
+
+  /* Border radius */
+  --pf-radius-xs:            2px;
+  --pf-radius-sm:            4px;
+  --pf-radius-md:            8px;
+  --pf-radius-lg:            12px;
+  --pf-radius-xl:            16px;
+  --pf-radius-full:          9999px;
+
+  /* Per-component radius aliases (overridable separately) */
+  --pf-radius-button:        var(--pf-radius-md);
+  --pf-radius-input:         var(--pf-radius-md);
+  --pf-radius-card:          var(--pf-radius-lg);
+
+  /* Shadow */
+  --pf-shadow-sm:            0 1px 2px rgba(0,0,0,0.05);
+  --pf-shadow-md:            0 4px 12px rgba(0,0,0,0.08);
+  --pf-shadow-lg:            0 12px 32px rgba(0,0,0,0.12);
+
+  /* Motion */
+  --pf-duration-fast:        120ms;
+  --pf-duration-base:        180ms;
+  --pf-easing:               cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Layout */
+  --pf-container-max-width:  480px;
+  --pf-container-padding:    24px;
+  --pf-field-gap:            16px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Layout primitives                                                          */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 .pf-container {
-  max-width: var(--pf-container-max-width, 480px);
-  padding: var(--pf-container-padding, 24px);
-  background: var(--pf-color-background, #fff);
-  border-radius: var(--pf-radius-card, 12px);
-  font-family: var(--pf-font-family, system-ui);
-  font-size: var(--pf-font-size-base, 16px);
-  color: var(--pf-color-text, #111827);
+  max-width: var(--pf-container-max-width);
+  padding: var(--pf-container-padding);
+  background: var(--pf-color-background);
+  border-radius: var(--pf-radius-card);
+  font-family: var(--pf-font-family);
+  font-size: var(--pf-font-size-base);
+  color: var(--pf-color-text);
   margin: 0 auto;
   box-sizing: border-box;
 }
 
-.pf-header {
-  margin-bottom: 24px;
+.pf-stack {
+  display: flex;
+  flex-direction: column;
 }
+.pf-stack--row { flex-direction: row; }
+.pf-stack--gap-xs  { gap: var(--pf-space-xs); }
+.pf-stack--gap-sm  { gap: var(--pf-space-sm); }
+.pf-stack--gap-md  { gap: var(--pf-space-md); }
+.pf-stack--gap-lg  { gap: var(--pf-space-lg); }
+.pf-stack--gap-xl  { gap: var(--pf-space-xl); }
+.pf-stack--center  { align-items: center; }
+.pf-stack--between { justify-content: space-between; }
+
+.pf-card {
+  background: var(--pf-color-background);
+  border: 1px solid var(--pf-color-border);
+  border-radius: var(--pf-radius-card);
+  padding: var(--pf-space-lg);
+}
+.pf-card--surface { background: var(--pf-color-surface); }
+.pf-card--flat    { border: none; background: var(--pf-color-surface); }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Typography                                                                 */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.pf-header {
+  margin-bottom: var(--pf-space-xl);
+}
+
+.pf-title {
+  font-size: var(--pf-font-size-xl);
+  font-weight: var(--pf-font-weight-heading);
+  color: var(--pf-color-text);
+  margin: 0 0 var(--pf-space-sm);
+  font-family: var(--pf-font-family);
+  line-height: var(--pf-line-height-tight);
+}
+
+.pf-subtitle {
+  font-size: var(--pf-font-size-sm);
+  color: var(--pf-color-text-muted);
+  margin: 0;
+  line-height: var(--pf-line-height-base);
+}
+
+.pf-text {
+  font-size: var(--pf-font-size-base);
+  color: var(--pf-color-text);
+  margin: 0;
+  font-family: var(--pf-font-family);
+  line-height: var(--pf-line-height-base);
+}
+.pf-text--sm    { font-size: var(--pf-font-size-sm); }
+.pf-text--xs    { font-size: var(--pf-font-size-xs); }
+.pf-text--muted { color: var(--pf-color-text-muted); }
+.pf-text--bold  { font-weight: var(--pf-font-weight-bold); }
+.pf-text--mono  { font-family: var(--pf-font-family-mono); }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Back button (used by StepLayout)                                           */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 .pf-back-btn {
   background: none;
   border: none;
   color: var(--pf-color-primary);
   cursor: pointer;
-  font-size: 14px;
-  font-family: var(--pf-font-family, system-ui);
+  font-size: var(--pf-font-size-sm);
+  font-family: var(--pf-font-family);
   padding: 0;
-  margin-bottom: 12px;
+  margin-bottom: var(--pf-space-md);
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  transition: opacity var(--pf-duration-fast) var(--pf-easing);
 }
+.pf-back-btn:hover     { opacity: 0.7; }
+.pf-back-btn:disabled  { opacity: 0.4; cursor: not-allowed; }
 
-.pf-back-btn:hover { opacity: 0.8; }
-.pf-back-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.pf-title {
-  font-size: 22px;
-  font-weight: var(--pf-font-weight-heading, 600);
-  color: var(--pf-color-text);
-  margin: 0 0 8px;
-  font-family: var(--pf-font-family, system-ui);
-}
-
-.pf-subtitle {
-  font-size: 14px;
-  color: var(--pf-color-text-muted);
-  margin: 0;
-}
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Field — label + input + error wrapper                                      */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 .pf-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--pf-field-gap, 16px);
+  gap: var(--pf-field-gap);
 }
 
 .pf-field-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--pf-space-xs);
 }
 
 .pf-label {
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--pf-font-size-sm);
+  font-weight: var(--pf-font-weight-medium);
   color: var(--pf-color-text);
-  font-family: var(--pf-font-family, system-ui);
+  font-family: var(--pf-font-family);
 }
 
 .pf-required {
@@ -73,154 +207,325 @@
   margin-left: 2px;
 }
 
+.pf-field-error {
+  font-size: var(--pf-font-size-xs);
+  color: var(--pf-color-error);
+  margin: 0;
+  font-family: var(--pf-font-family);
+}
+
+.pf-field-help {
+  font-size: var(--pf-font-size-xs);
+  color: var(--pf-color-text-muted);
+  margin: 0;
+  font-family: var(--pf-font-family);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* PfInput / PfSelect / PfTextarea / PfNumberInput / PfDatePicker             */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 .pf-input,
-.pf-select {
+.pf-select,
+.pf-textarea {
   height: 44px;
-  padding: 0 12px;
-  border: 1.5px solid color-mix(in srgb, var(--pf-color-text) 20%, transparent);
-  border-radius: var(--pf-radius-input, 8px);
-  font-size: var(--pf-font-size-base, 16px);
-  font-family: var(--pf-font-family, system-ui);
+  padding: 0 var(--pf-space-md);
+  border: 1.5px solid var(--pf-color-border);
+  border-radius: var(--pf-radius-input);
+  font-size: var(--pf-font-size-base);
+  font-family: var(--pf-font-family);
   color: var(--pf-color-text);
-  background: var(--pf-color-surface, #f8fafc);
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  background: var(--pf-color-surface);
+  transition: border-color var(--pf-duration-fast) var(--pf-easing),
+              box-shadow var(--pf-duration-fast) var(--pf-easing);
   width: 100%;
   box-sizing: border-box;
   outline: none;
 }
 
+.pf-textarea {
+  height: auto;
+  min-height: 96px;
+  padding: var(--pf-space-md);
+  resize: vertical;
+}
+
 .pf-input:focus,
-.pf-select:focus {
+.pf-select:focus,
+.pf-textarea:focus {
   border-color: var(--pf-color-primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--pf-color-primary) 15%, transparent);
 }
 
+.pf-input:disabled,
+.pf-select:disabled,
+.pf-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: var(--pf-color-surface-2);
+}
+
 .pf-input--error,
-.pf-select--error {
+.pf-select--error,
+.pf-textarea--error {
   border-color: var(--pf-color-error);
 }
 
-.pf-field-error {
-  font-size: 12px;
-  color: var(--pf-color-error);
-  margin: 0;
-  font-family: var(--pf-font-family, system-ui);
-}
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* PfButton                                                                   */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 .pf-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pf-space-sm);
   height: 48px;
-  padding: 0 24px;
+  padding: 0 var(--pf-space-xl);
   background: var(--pf-color-primary);
-  color: #fff;
+  color: var(--pf-color-primary-text);
   border: none;
-  border-radius: var(--pf-radius-button, 8px);
-  font-size: 16px;
-  font-weight: 500;
-  font-family: var(--pf-font-family, system-ui);
+  border-radius: var(--pf-radius-button);
+  font-size: var(--pf-font-size-base);
+  font-weight: var(--pf-font-weight-medium);
+  font-family: var(--pf-font-family);
   cursor: pointer;
   width: 100%;
-  transition: opacity 150ms ease, transform 100ms ease;
-  margin-top: 8px;
+  transition: opacity var(--pf-duration-fast) var(--pf-easing),
+              transform 100ms var(--pf-easing),
+              background var(--pf-duration-fast) var(--pf-easing);
+  margin-top: var(--pf-space-sm);
 }
-
-.pf-btn:hover:not(:disabled) { opacity: 0.9; }
+.pf-btn:hover:not(:disabled)  { background: var(--pf-color-primary-hover); }
 .pf-btn:active:not(:disabled) { transform: scale(0.99); }
-.pf-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.pf-btn:disabled              { opacity: 0.6; cursor: not-allowed; }
 
 .pf-btn--secondary {
   background: transparent;
   color: var(--pf-color-primary);
   border: 1.5px solid var(--pf-color-primary);
 }
-
-.pf-skeleton {
-  background: color-mix(in srgb, var(--pf-color-text) 8%, transparent);
-  border-radius: var(--pf-radius-input, 8px);
-  animation: pf-pulse 1.5s ease-in-out infinite;
+.pf-btn--secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pf-color-primary) 8%, transparent);
 }
 
-@keyframes pf-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-.pf-error-state {
-  text-align: center;
-  padding: 32px 16px;
-}
-
-.pf-error-icon {
-  font-size: 40px;
-  margin-bottom: 12px;
-}
-
-.pf-error-title {
-  font-size: 18px;
-  font-weight: 600;
+.pf-btn--ghost {
+  background: transparent;
   color: var(--pf-color-text);
-  margin: 0 0 8px;
-  font-family: var(--pf-font-family, system-ui);
+}
+.pf-btn--ghost:hover:not(:disabled) { background: var(--pf-color-surface-2); }
+
+.pf-btn--danger {
+  background: var(--pf-color-error);
+}
+.pf-btn--danger:hover:not(:disabled) {
+  filter: brightness(0.92);
 }
 
-.pf-error-message {
-  font-size: 14px;
-  color: var(--pf-color-text-muted);
-  margin: 0 0 20px;
-  font-family: var(--pf-font-family, system-ui);
+.pf-btn--sm { height: 36px; padding: 0 var(--pf-space-md); font-size: var(--pf-font-size-sm); }
+.pf-btn--lg { height: 56px; font-size: var(--pf-font-size-lg); }
+
+.pf-btn--inline { width: auto; margin-top: 0; }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* PfCheckbox / PfRadio                                                       */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.pf-checkbox,
+.pf-radio {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--pf-space-sm);
+  cursor: pointer;
+  font-family: var(--pf-font-family);
+  font-size: var(--pf-font-size-sm);
+  color: var(--pf-color-text);
+  line-height: var(--pf-line-height-base);
 }
+
+.pf-checkbox input,
+.pf-radio input {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0,0,0,0);
+  white-space: nowrap; border: 0;
+}
+
+.pf-checkbox-box,
+.pf-radio-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px; height: 20px;
+  flex-shrink: 0;
+  border: 2px solid var(--pf-color-border-strong);
+  background: var(--pf-color-background);
+  transition: background var(--pf-duration-fast) var(--pf-easing),
+              border-color var(--pf-duration-fast) var(--pf-easing);
+  margin-top: 1px;
+}
+.pf-checkbox-box { border-radius: 5px; }
+.pf-radio-box    { border-radius: 50%; }
+
+.pf-checkbox input:checked + .pf-checkbox-box,
+.pf-radio input:checked    + .pf-radio-box {
+  background: var(--pf-color-primary);
+  border-color: var(--pf-color-primary);
+}
+
+.pf-radio input:checked + .pf-radio-box::after {
+  content: '';
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--pf-color-primary-text);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* PfOTPInput — 6 boxes auto-advance                                          */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 .pf-otp-inputs {
   display: flex;
-  gap: 12px;
+  gap: var(--pf-space-md);
   justify-content: center;
-  margin: 24px 0;
+  margin: var(--pf-space-xl) 0;
 }
 
 .pf-otp-input {
   width: 52px;
   height: 60px;
   text-align: center;
-  font-size: 24px;
-  font-weight: 600;
-  border: 2px solid color-mix(in srgb, var(--pf-color-text) 20%, transparent);
-  border-radius: var(--pf-radius-input, 8px);
+  font-size: var(--pf-font-size-xl);
+  font-weight: var(--pf-font-weight-heading);
+  border: 2px solid var(--pf-color-border);
+  border-radius: var(--pf-radius-input);
   background: var(--pf-color-surface);
   color: var(--pf-color-text);
-  font-family: var(--pf-font-family, system-ui);
+  font-family: var(--pf-font-family);
   outline: none;
-  transition: border-color 150ms ease;
+  transition: border-color var(--pf-duration-fast) var(--pf-easing);
+}
+.pf-otp-input:focus { border-color: var(--pf-color-primary); }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* PfBadge                                                                    */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.pf-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--pf-radius-full);
+  font-size: var(--pf-font-size-xs);
+  font-weight: var(--pf-font-weight-bold);
+  font-family: var(--pf-font-family);
+  background: var(--pf-color-surface-2);
+  color: var(--pf-color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+}
+.pf-badge--primary { background: var(--pf-color-info-surface);    color: var(--pf-color-info); }
+.pf-badge--success { background: var(--pf-color-success-surface); color: var(--pf-color-success); }
+.pf-badge--warning { background: var(--pf-color-warning-surface); color: var(--pf-color-warning); }
+.pf-badge--error   { background: var(--pf-color-error-surface);   color: var(--pf-color-error); }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* PfSpinner / PfProcessingSpinner                                            */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.pf-spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid color-mix(in srgb, var(--pf-color-primary) 25%, transparent);
+  border-top-color: var(--pf-color-primary);
+  border-radius: 50%;
+  animation: pf-spin 0.7s linear infinite;
+}
+.pf-spinner--sm { width: 14px; height: 14px; border-width: 1.5px; }
+.pf-spinner--lg { width: 32px; height: 32px; border-width: 3px; }
+
+@keyframes pf-spin {
+  to { transform: rotate(360deg); }
 }
 
-.pf-otp-input:focus {
-  border-color: var(--pf-color-primary);
+.pf-skeleton {
+  background: color-mix(in srgb, var(--pf-color-text) 8%, transparent);
+  border-radius: var(--pf-radius-input);
+  animation: pf-pulse 1.5s ease-in-out infinite;
 }
+
+@keyframes pf-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Decision (terminal) screens                                                */
+/* ─────────────────────────────────────────────────────────────────────────── */
 
 .pf-decision {
   text-align: center;
-  padding: 24px 0;
+  padding: var(--pf-space-xl) 0;
 }
 
 .pf-decision-icon {
   font-size: 56px;
-  margin-bottom: 16px;
+  margin-bottom: var(--pf-space-lg);
 }
 
 .pf-decision-title {
-  font-size: 24px;
-  font-weight: 700;
-  margin: 0 0 8px;
-  font-family: var(--pf-font-family, system-ui);
+  font-size: var(--pf-font-size-xl);
+  font-weight: var(--pf-font-weight-bold);
+  margin: 0 0 var(--pf-space-sm);
+  font-family: var(--pf-font-family);
 }
 
 .pf-decision--approved .pf-decision-title { color: var(--pf-color-success); }
 .pf-decision--rejected .pf-decision-title { color: var(--pf-color-error); }
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Error state                                                                */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.pf-error-state {
+  text-align: center;
+  padding: var(--pf-space-2xl) var(--pf-space-lg);
+}
+
+.pf-error-icon {
+  font-size: 40px;
+  margin-bottom: var(--pf-space-md);
+}
+
+.pf-error-title {
+  font-size: var(--pf-font-size-lg);
+  font-weight: var(--pf-font-weight-heading);
+  color: var(--pf-color-text);
+  margin: 0 0 var(--pf-space-sm);
+  font-family: var(--pf-font-family);
+}
+
+.pf-error-message {
+  font-size: var(--pf-font-size-sm);
+  color: var(--pf-color-text-muted);
+  margin: 0 0 var(--pf-space-xl);
+  font-family: var(--pf-font-family);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* Loading                                                                    */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
 .pf-loading-pulse {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 40px 0;
+  gap: var(--pf-space-sm);
+  padding: var(--pf-space-2xl) 0;
 }
 
 .pf-loading-dot {
@@ -236,5 +541,5 @@
 
 @keyframes pf-bounce {
   0%, 100% { transform: translateY(0); opacity: 0.6; }
-  50% { transform: translateY(-8px); opacity: 1; }
+  50%      { transform: translateY(-8px); opacity: 1; }
 }
